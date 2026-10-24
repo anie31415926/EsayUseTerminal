@@ -21,7 +21,14 @@ export class TerminalController {
 
   async create(shellPath?: string, cwd?: string): Promise<string> {
     const s = new TerminalSession({ shellPath })
-    await s.start(cwd)
+    try {
+      await s.start(cwd)
+    } catch (err) {
+      // 起不来就别留一个空 xterm + 幽灵标签：彻底回收后再报错
+      console.error('[create] 启动会话失败：', err)
+      s.dispose()
+      return ''
+    }
     this.hostEl.appendChild(s.host)
     const id = s.ptyId
     this.sessions.set(id, s)
@@ -46,6 +53,8 @@ export class TerminalController {
       this.activeId = id // 先都取最后一个，激活放循环外
     }
     if (any && this.activeId) this.activate(this.activeId)
+    // 序号接着恢复的会话往下排，否则热重载后会出现两个「终端 1」
+    if (any) this.counter = Math.max(this.counter, this.sessions.size)
     return any
   }
 

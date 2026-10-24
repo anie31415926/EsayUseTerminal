@@ -35,6 +35,8 @@ export interface AppEvents {
   'theme:changed':      { id: string }
   'search:toggle':      { needle?: string }
   'tabs:reorder':       { ids: string[] }
+  /** 请求重命名标签；id 省略时作用于当前激活标签（F2 / 菜单触发） */
+  'tab:rename-request': { id?: string }
 }
 
 export const bus = new EventBus<AppEvents>()

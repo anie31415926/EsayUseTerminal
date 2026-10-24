@@ -10,3 +10,4 @@ dev.log
 *.ntvs*
 *.njsproj
 *.sln
+.workbuddy/

@@ -9,7 +9,6 @@ import { bus } from '../core/EventBus'
 
 export interface SessionOptions {
   shellPath?: string
-  cwd?: string
 }
 
 const FONT_KEY = 'spark.fontSize'
@@ -102,37 +101,42 @@ export class TerminalSession {
       this.term.options.theme = themeManager.xtermTheme()
     })
 
-    // 快捷键：Ctrl+Shift+C/V 保留为备用；主用 Ctrl+C/V（VSCode 风格：有选中才复制，否则放行 SIGINT）
-    this.term.attachCustomKeyEventHandler((ev) => {      if (ev.type !== 'keydown') return true
+    // 快捷键：Ctrl+Shift+C/V 保留为备用；主用 Ctrl+C/V（Windows Terminal 语义：有选中才复制，否则送 ETX 中断）
+    this.term.attachCustomKeyEventHandler((ev) => {
+      if (ev.type !== 'keydown') return true
       const mod = ev.ctrlKey
       const shift = ev.shiftKey
       const code = ev.code
-      const key = ev.key.toLowerCase()
 
       // Ctrl+Shift+C / Ctrl+Shift+V 备用
       if (mod && shift && code === 'KeyC') {
         const sel = this.term.getSelection()
-        if (sel) navigator.clipboard.writeText(sel)
+        if (sel) void this.copyToClipboard(sel)
         return false
       }
       if (mod && shift && code === 'KeyV') {
-        navigator.clipboard.readText().then((t) => this.term.paste(t))
+        void this.pasteFromClipboard()
         return false
       }
 
-      // Ctrl+C：永远拦截（包括 xterm 双击选中时合成的那个），不发给 shell
-      if (mod && !shift && (code === 'KeyC' || key === 'c')) {
+      // Ctrl+C：有选中就复制；没选中就把 ETX 送给 shell，保证还能中断正在跑的命令
+      // （Windows Terminal 同款语义。以前无条件吞掉，导致 Ctrl+C 根本杀不掉命令）
+      if (mod && !shift && code === 'KeyC') {
         const sel = this.term.getSelection()
-        if (sel) navigator.clipboard.writeText(sel)
+        if (sel) {
+          void this.copyToClipboard(sel)
+        } else if (this.ptyId && !this.exited) {
+          window.spark.write(this.ptyId, '\x03')
+        }
         return false
       }
       // Ctrl+V：粘贴
       if (mod && !shift && code === 'KeyV') {
-        navigator.clipboard.readText().then((t) => this.term.paste(t))
+        void this.pasteFromClipboard()
         return false
       }
 
-      if (mod && !shift && key === 'l') {
+      if (mod && !shift && code === 'KeyL') {
         this.term.clear()
         return false
       }
@@ -142,6 +146,18 @@ export class TerminalSession {
     })
 
     this.shellPath = opts.shellPath ?? ''
+  }
+
+  /** 读剪贴板并粘贴：无权限/被拒时安静失败，不抛未处理 Promise */
+  private async pasteFromClipboard() {
+    try {
+      const text = await navigator.clipboard.readText()
+      if (text) this.term.paste(text)
+    } catch { /* 剪贴板不可用（无焦点 / 权限拒绝）时忽略 */ }
+  }
+
+  private async copyToClipboard(text: string) {
+    try { await navigator.clipboard.writeText(text) } catch { /* 忽略 */ }
   }
 
   async start(cwd?: string) {
@@ -213,7 +229,9 @@ export class TerminalSession {
     this.unsubscribeData?.()
     this.unsubscribeExit?.()
     this.offTheme?.()
-    if (this.ptyId) window.spark.kill(this.ptyId)
+    // 已经退出的会话不能再 kill：ConPTY 会对已消失的控制台 fork 枚举进程的 agent，
+    // 子进程里 AttachConsole 失败会往日志里扔一坨栈（功能无影响，纯噪音）
+    if (this.ptyId && !this.exited) window.spark.kill(this.ptyId)
     this.term.dispose()
     this.host.remove()
   }

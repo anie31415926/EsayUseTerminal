@@ -1,9 +1,84 @@
 import type { TerminalSession } from '../terminal/TerminalSession'
 import { bus } from '../core/EventBus'
 
+export interface MenuItem {
+  label: string
+  shortcut?: string
+  action: () => void
+  disabled?: boolean
+}
+export type MenuEntry = MenuItem | 'separator'
+
 /**
- * 终端右键菜单：复制 / 粘贴 / 清屏 / 新建标签。
- * 每次右键动态创建一个浮层，点别处即销毁。
+ * 通用浮层菜单：靠视口边缘自动夹取，点外部 / Esc / 窗口缩放即关闭。
+ * 终端右键菜单与标签右键菜单共用同一套样式与关闭逻辑，避免两份实现漂移。
+ */
+export function showMenu(entries: MenuEntry[], x: number, y: number) {
+  document.querySelectorAll('.context-menu').forEach((el) => el.remove())
+
+  const menu = document.createElement('div')
+  menu.className = 'context-menu'
+  menu.style.visibility = 'hidden'
+  menu.style.left = '0px'
+  menu.style.top = '0px'
+
+  for (const entry of entries) {
+    if (entry === 'separator') {
+      const sep = document.createElement('div')
+      sep.className = 'separator'
+      menu.appendChild(sep)
+      continue
+    }
+    const btn = document.createElement('button')
+    const label = document.createElement('span')
+    label.textContent = entry.label
+    btn.appendChild(label)
+    if (entry.shortcut) {
+      const sc = document.createElement('span')
+      sc.className = 'shortcut'
+      sc.textContent = entry.shortcut
+      btn.appendChild(sc)
+    }
+    if (entry.disabled) {
+      btn.disabled = true
+    } else {
+      btn.addEventListener('click', () => { close(); entry.action() })
+    }
+    menu.appendChild(btn)
+  }
+
+  document.body.appendChild(menu)
+
+  // 先挂到 DOM 量真实尺寸，再夹进视口（右侧 / 底部自动翻转）
+  const w = menu.offsetWidth
+  const h = menu.offsetHeight
+  menu.style.left = `${Math.max(4, Math.min(x, window.innerWidth - w - 8))}px`
+  menu.style.top = `${Math.max(4, Math.min(y, window.innerHeight - h - 8))}px`
+  menu.style.visibility = ''
+
+  function close() {
+    menu.remove()
+    document.removeEventListener('mousedown', onDoc, true)
+    document.removeEventListener('keydown', onKey, true)
+    window.removeEventListener('resize', close)
+    window.removeEventListener('blur', close)
+  }
+  function onDoc(ev: MouseEvent) {
+    if (!menu.contains(ev.target as Node)) close()
+  }
+  function onKey(ev: KeyboardEvent) {
+    if (ev.key === 'Escape') { ev.stopPropagation(); close() }
+  }
+  setTimeout(() => document.addEventListener('mousedown', onDoc, true), 0)
+  document.addEventListener('keydown', onKey, true)
+  window.addEventListener('resize', close)
+  window.addEventListener('blur', close)
+
+  return close
+}
+
+/**
+ * 终端右键菜单：复制 / 粘贴 / 查找 / 清屏 / 新建标签。
  */
 export function attachContextMenu(
   hostEl: HTMLElement,
@@ -15,45 +90,36 @@ export function attachContextMenu(
     const session = getActiveSession()
     if (!session) return
 
-    const menu = document.createElement('div')
-    menu.className = 'context-menu'
-    menu.innerHTML = `
-      <button data-act="copy">复制 <span class="shortcut">Ctrl+Shift+C</span></button>
-      <button data-act="paste">粘贴 <span class="shortcut">Ctrl+Shift+V</span></button>
-      <button data-act="find">查找 <span class="shortcut">Ctrl+F</span></button>
-      <div class="separator"></div>
-      <button data-act="clear">清屏 <span class="shortcut">Ctrl+L</span></button>
-      <div class="separator"></div>
-      <button data-act="newtab">新建标签 <span class="shortcut">Ctrl+Shift+T</span></button>
-    `
-    // 视口边缘自动翻转
-    const x = Math.min(e.clientX, window.innerWidth - 180)
-    const y = Math.min(e.clientY, window.innerHeight - 200)
-    menu.style.left = `${x}px`
-    menu.style.top = `${y}px`
-    document.body.appendChild(menu)
-
-    const close = () => { menu.remove(); document.removeEventListener('mousedown', onDoc, true) }
-    const onDoc = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) close() }
-    setTimeout(() => document.addEventListener('mousedown', onDoc, true), 0)
-
-    menu.addEventListener('click', async (ev) => {
-      const act = (ev.target as HTMLElement).closest('button')?.dataset.act
-      close()
-      const term = session.term
-      if (act === 'copy') {
-        const sel = term.getSelection()
-        if (sel) await navigator.clipboard.writeText(sel)
-      } else if (act === 'paste') {
-        const text = await navigator.clipboard.readText()
-        session.term.paste(text)
-      } else if (act === 'clear') {
-        session.term.clear()
-      } else if (act === 'find') {
-        bus.emit('search:toggle', { needle: session.term.getSelection() })
-      } else if (act === 'newtab') {
-        onNewTab()
-      }
-    })
+    const selection = session.term.getSelection()
+    showMenu([
+      {
+        label: '复制',
+        shortcut: 'Ctrl+Shift+C',
+        disabled: !selection,
+        action: () => {
+          if (!selection) return
+          navigator.clipboard.writeText(selection).catch(() => { /* 剪贴板不可用 */ })
+        }
+      },
+      {
+        label: '粘贴',
+        shortcut: 'Ctrl+Shift+V',
+        action: async () => {
+          try {
+            const text = await navigator.clipboard.readText()
+            if (text) session.term.paste(text)
+          } catch { /* 剪贴板不可用时忽略 */ }
+        }
+      },
+      {
+        label: '查找',
+        shortcut: 'Ctrl+F',
+        action: () => bus.emit('search:toggle', { needle: session.term.getSelection() })
+      },
+      'separator',
+      { label: '清屏', shortcut: 'Ctrl+L', action: () => session.term.clear() },
+      'separator',
+      { label: '新建标签', shortcut: 'Ctrl+Shift+T', action: onNewTab }
+    ], e.clientX, e.clientY)
   })
 }

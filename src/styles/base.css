@@ -120,6 +120,28 @@ body {
 }
 .tab-close:hover { background: rgba(255,93,93,0.2); color: var(--danger); }
 
+/* 重命名后的标签：标题加一点强调色，跟 shell 自动标题区分开 */
+.tab-title.renamed { color: var(--accent); font-weight: 600; }
+.tab.active .tab-title.renamed { color: var(--accent); }
+
+/* 内联重命名输入框 */
+.tab.editing { background: var(--bg-hover); }
+.tab-rename {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 5px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(163, 230, 53, 0.18);
+  -webkit-app-region: no-drag;
+}
+
 .ghost-btn {
   -webkit-app-region: no-drag;
   border: 0; background: transparent; color: var(--fg-dim);
@@ -275,6 +297,7 @@ body {
   font-size: 12px; text-align: left;
 }
 .context-menu button:hover { background: var(--bg-hover); }
+.context-menu button:disabled { opacity: 0.4; cursor: default; background: transparent; }
 .context-menu button .shortcut { color: var(--fg-dim); font-size: 11px; }
 .context-menu .separator {
   height: 1px; background: var(--border); margin: 4px 6px;

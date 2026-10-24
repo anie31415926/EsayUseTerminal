@@ -30,7 +30,8 @@ function registerWindowIpc() {
   })
   ipcMain.handle('dialog:pick-folder', async (e) => {
     const win = BrowserWindow.fromWebContents(e.sender)
-    const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory'] })
+    const opts: Electron.OpenDialogOptions = { properties: ['openDirectory'] }
+    const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     return r.canceled ? null : r.filePaths[0]
   })
 }

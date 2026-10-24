@@ -51,6 +51,11 @@ export class FindBox {
     this.session = session
   }
 
+  /** 当前绑定的 pty 会话 id（main 用它判断会话是否已经关闭） */
+  get sessionId(): string {
+    return this.session?.ptyId ?? ''
+  }
+
   toggle() {
     if (this.visible) this.close()
     else this.open()

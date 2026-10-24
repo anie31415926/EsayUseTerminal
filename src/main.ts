@@ -83,12 +83,19 @@ async function main() {
       scrollBar.bind(first)
       statusBar.setZoom(first.getZoom())
       statusBar.setDim(first.term.cols, first.term.rows)
+      statusBar.setShell(shellName(first.shellPath || 'shell'))
     }
 
     const ro = new ResizeObserver(() => controller.active()?.fit.fit())
     ro.observe(host)
 
     window.addEventListener('keydown', (e) => {
+      // F2 重命名当前标签（不占 Ctrl 组合，符合 VSCode / 资源管理器习惯）
+      if (e.code === 'F2' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+        const id = controller.active()?.ptyId
+        if (id) { e.preventDefault(); bus.emit('tab:rename-request', { id }) }
+        return
+      }
       const mod = e.ctrlKey || e.metaKey
       if (!mod) return
       if (e.shiftKey && e.code === 'KeyT') { e.preventDefault(); void controller.create(shellPath, workspaceCwd || undefined); return }
@@ -138,16 +145,20 @@ async function main() {
     host.addEventListener('drop', (e) => {
       e.preventDefault()
       const files = [...(e.dataTransfer?.files ?? [])]
-      const paths = files.map((f) => (f as File & { path?: string }).path).filter((p): p is string => !!p)
+      // File.path 在 Electron 新版本已被移除，改用 preload 的 webUtils 桥；旧版本回退取值
+      const paths = files
+        .map((f) => window.spark.getPathForFile?.(f) || (f as File & { path?: string }).path || '')
+        .filter((p): p is string => !!p)
       if (!paths.length) return
       const line = paths.map((p) => (p.includes(' ') ? `"${p}"` : p)).join(' ')
       const s = controller.active()
       if (s) { window.spark.write(s.ptyId, line); s.focus() }
     })
 
-    bus.on('session:created', () => {
-      const s = controller.active()
-      if (s) statusBar.setShell(shellName(s.shellPath || shellPath))
+    // 会话关闭：查找框 / 滚动条别再抓着已经 dispose 的 term
+    bus.on('session:closed', ({ id }) => {
+      if (findBox.sessionId === id) findBox.setSession(null)
+      if (scrollBar.sessionId === id) scrollBar.unbind()
     })
   } catch (err) {
     console.error('[boot][FATAL]', err)

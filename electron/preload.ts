@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 /**
  * preload 桥：渲染进程只能通过这里暴露的 API 与主进程通信，
@@ -17,6 +17,15 @@ const api = {
 
   // 弹出系统目录选择框，返回选中路径（取消返回 null）
   pickFolder: () => ipcRenderer.invoke('dialog:pick-folder') as Promise<string | null>,
+
+  /**
+   * 取拖入文件的真实路径。
+   * Electron 新版本已移除非标准的 File.path，必须走 webUtils（只能在渲染进程侧调用）。
+   * 失败返回空串，调用方自行降级。
+   */
+  getPathForFile: (file: File): string => {
+    try { return webUtils.getPathForFile(file) } catch { return '' }
+  },
 
   // 事件订阅：返回 unsubscribe 函数
   onData: (id: string, cb: (data: string) => void) => {
