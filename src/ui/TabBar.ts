@@ -52,6 +52,9 @@ export class TabBar {
   private editingId = ''
   /** 正在启动的会话数：先显示占位标签，pty 起来后再换成真标签 */
   private pending = 0
+  /** 上一次按下的标签与时刻：用于自己判定双击（原生 dblclick 会被重绘打断） */
+  private lastDownId = ''
+  private lastDownAt = 0
   private onClickTab: (id: string) => void
   private onCloseTab: (id: string) => void
   private onNewTab: () => void
@@ -89,7 +92,12 @@ export class TabBar {
       this.tabs.push({ id, autoTitle: title, custom: savedTitles[id] })
       this.requestRender()
     })
-    bus.on('session:active', ({ id }) => { this.activeId = id; this.requestRender() })
+    bus.on('session:active', ({ id }) => {
+      // 重复激活同一个标签（点当前标签、双击改名）不用重绘，少一次无谓的 DOM 重建
+      if (this.activeId === id) return
+      this.activeId = id
+      this.requestRender()
+    })
     bus.on('session:closed', ({ id }) => {
       this.tabs = this.tabs.filter((t) => t.id !== id)
       persistTitle(id, undefined)
@@ -154,22 +162,31 @@ export class TabBar {
 
       tab.append(titleEl, closeBtn)
 
-      // 点标签任意位置选中（中键关闭）
+      // 点标签任意位置选中（中键关闭）；双击标题进入重命名
       tab.addEventListener('mousedown', (e) => {
         if (e.button === 1) { e.preventDefault(); this.onCloseTab(t.id); return }
-        if (e.button === 0) this.onClickTab(t.id)
+        if (e.button !== 0) return
+        this.onClickTab(t.id)
+
+        // 自己判双击：激活标签会触发整栏重绘，两次点击落在不同 DOM 节点上，
+        // 浏览器原生 dblclick 不会派发（实测「双击改名」就是这么失效的）
+        const now = performance.now()
+        if (this.lastDownId === t.id && now - this.lastDownAt < 380) {
+          this.lastDownId = ''
+          this.lastDownAt = 0
+          // 关键：不让 mousedown 走默认的焦点处理，否则刚 focus 的输入框会被立刻 blur，
+          // blur 又触发提交 + 重绘，看起来就是「双击没反应」
+          e.preventDefault()
+          this.beginRename(t.id)
+          return
+        }
+        this.lastDownId = t.id
+        this.lastDownAt = now
       })
       closeBtn.addEventListener('mousedown', (e) => e.stopPropagation())
       closeBtn.addEventListener('click', (e) => {
         e.stopPropagation()
         this.onCloseTab(t.id)
-      })
-
-      // 双击标题进入重命名
-      tab.addEventListener('dblclick', (e) => {
-        if ((e.target as HTMLElement).closest('.tab-close')) return
-        e.preventDefault()
-        this.beginRename(t.id)
       })
 
       // 右键菜单：重命名 / 恢复自动标题 / 关闭

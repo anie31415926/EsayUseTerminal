@@ -109,6 +109,16 @@ export class TerminalSession {
       const shift = ev.shiftKey
       const code = ev.code
 
+      // F2 重命名标签：这里必须处理。终端聚焦时 xterm 会把 F2 当功能键吞掉
+      // （转成 \x1bOQ 发给 shell），窗口级 keydown 根本收不到，重命名就成了摆设。
+      // stopPropagation 是为了别让 window 上那份再触发一次。
+      if (code === 'F2' && !mod && !shift && !ev.altKey) {
+        ev.preventDefault()
+        ev.stopPropagation()
+        bus.emit('tab:rename-request', {})
+        return false
+      }
+
       // Ctrl+Shift+C / Ctrl+Shift+V 备用
       if (mod && shift && code === 'KeyC') {
         const sel = this.term.getSelection()
