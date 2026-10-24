@@ -37,6 +37,7 @@
   "build": {
     "appId": "com.sparkterminal.app",
     "productName": "SparkTerminal",
+    "npmRebuild": false,
     "directories": { "output": "dist" },
     "files": ["out/**/*", "build/icon.*"],
     "win": {
