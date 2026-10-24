@@ -20,13 +20,17 @@ export class TerminalController {
   }
 
   async create(shellPath?: string, cwd?: string): Promise<string> {
-    const s = new TerminalSession({ shellPath })
+    // 先把「占位标签」挂上去：pty 启动要 100~300ms，之前这段时间界面完全没反应，像点空了
+    bus.emit('session:creating', {})
+    let s: TerminalSession | null = null
     try {
+      s = new TerminalSession({ shellPath })
       await s.start(cwd)
     } catch (err) {
-      // 起不来就别留一个空 xterm + 幽灵标签：彻底回收后再报错
+      // 起不来就别留空 xterm + 幽灵标签：彻底回收并撤掉占位标签
       console.error('[create] 启动会话失败：', err)
-      s.dispose()
+      s?.dispose()
+      bus.emit('session:create-failed', {})
       return ''
     }
     this.hostEl.appendChild(s.host)
@@ -90,7 +94,12 @@ export class TerminalController {
     // 关闭当前标签后激活同序号的标签：优先右侧，末尾时回退左侧
     const wasActive = this.activeId === id
     const idx = [...this.sessions.keys()].indexOf(id)
-    s.dispose()
+    // 单个会话 dispose 出岔子也不能把标签留在界面上（曾经 WebGL addon 抛错就卡在这）
+    try {
+      s.dispose()
+    } catch (err) {
+      console.error('[close] dispose 失败，强制摘除标签：', err)
+    }
     this.sessions.delete(id)
     bus.emit('session:closed', { id })
     if (wasActive) {

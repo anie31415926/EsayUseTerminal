@@ -46,6 +46,7 @@ export class TerminalSession {
   private baseFontSize: number
   private zoomFactor: number
   private exited = false
+  private webgl: WebglAddon | null = null
 
   constructor(opts: SessionOptions = {}) {
     this.baseFontSize = loadNum(FONT_KEY, 13, FONT_MIN, FONT_MAX)
@@ -71,10 +72,10 @@ export class TerminalSession {
 
     // GPU 加速渲染；丢失上下文时自动回退到 DOM 渲染
     try {
-      const webgl = new WebglAddon()
-      webgl.onContextLoss(() => webgl.dispose())
-      this.term.loadAddon(webgl)
-    } catch { /* 无 WebGL 环境继续用 canvas */ }
+      this.webgl = new WebglAddon()
+      this.webgl.onContextLoss(() => this.disposeWebgl())
+      this.term.loadAddon(this.webgl)
+    } catch { this.webgl = null /* 无 WebGL 环境继续用 canvas */ }
 
     this.host = document.createElement('div')
     this.host.className = 'session-host'
@@ -161,11 +162,14 @@ export class TerminalSession {
   }
 
   async start(cwd?: string) {
-    const { id } = await window.spark.spawn({
+    const { id, shellPath } = await window.spark.spawn({
       cols: this.term.cols || 80, rows: this.term.rows || 24,
       cwd, shell: this.shellPath || undefined
     })
     this.ptyId = id
+    // 采纳主进程实际选中的 shell：传空时会回退到候选列表第一个，
+    // 不写回来会导致状态栏显示 "shell"、后续新标签也一直传空
+    if (shellPath) this.shellPath = shellPath
     this.bindPty(id)
     this.openTerminal()
   }
@@ -232,7 +236,24 @@ export class TerminalSession {
     // 已经退出的会话不能再 kill：ConPTY 会对已消失的控制台 fork 枚举进程的 agent，
     // 子进程里 AttachConsole 失败会往日志里扔一坨栈（功能无影响，纯噪音）
     if (this.ptyId && !this.exited) window.spark.kill(this.ptyId)
-    this.term.dispose()
+    // 顺序要紧：先把 WebGL addon 摘掉，再 dispose 终端。
+    // 反过来的话，term.dispose() 拆掉 core 之后 addon 的 dispose 回调还要读
+    // _terminal._core._store._isDisposed，直接抛 TypeError，把整个关闭流程打断
+    // （表现就是：终端被 kill 了，但标签还在，得再点一次才消失）。
+    this.disposeWebgl()
+    try {
+      this.term.dispose()
+    } catch (err) {
+      console.error('[session] term.dispose 失败：', err)
+    }
     this.host.remove()
+  }
+
+  /** WebGL addon 的 dispose 幂等化：上下文丢失与主动关闭可能都会走到这里 */
+  private disposeWebgl() {
+    const addon = this.webgl
+    this.webgl = null
+    if (!addon) return
+    try { addon.dispose() } catch { /* 终端已拆除时忽略 */ }
   }
 }

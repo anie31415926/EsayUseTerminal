@@ -50,6 +50,8 @@ export class TabBar {
   private renderScheduled = false
   /** 正在内联编辑的标签 id；非空时暂停整栏重绘，否则输入框会被 innerHTML 冲掉 */
   private editingId = ''
+  /** 正在启动的会话数：先显示占位标签，pty 起来后再换成真标签 */
+  private pending = 0
   private onClickTab: (id: string) => void
   private onCloseTab: (id: string) => void
   private onNewTab: () => void
@@ -74,7 +76,16 @@ export class TabBar {
     `
     document.getElementById('terminal-host')!.appendChild(this.emptyEl)
 
+    bus.on('session:creating', () => {
+      this.pending++
+      this.requestRender()
+    })
+    bus.on('session:create-failed', () => {
+      this.pending = Math.max(0, this.pending - 1)
+      this.requestRender()
+    })
     bus.on('session:created', ({ id, title }) => {
+      this.pending = Math.max(0, this.pending - 1)
       this.tabs.push({ id, autoTitle: title, custom: savedTitles[id] })
       this.requestRender()
     })
@@ -215,7 +226,20 @@ export class TabBar {
 
       this.el.appendChild(tab)
     }
-    this.emptyEl.style.display = this.tabs.length === 0 ? 'grid' : 'none'
+
+    // 占位标签：pty 还在启动，先把位置占住，点击 + 立刻有反馈
+    for (let i = 0; i < this.pending; i++) {
+      const ghost = document.createElement('div')
+      ghost.className = 'tab ghost'
+      ghost.title = '终端启动中…'
+      const title = document.createElement('span')
+      title.className = 'tab-title'
+      title.textContent = '启动中…'
+      ghost.appendChild(title)
+      this.el.appendChild(ghost)
+    }
+
+    this.emptyEl.style.display = this.tabs.length === 0 && this.pending === 0 ? 'grid' : 'none'
   }
 
   /** 把标题换成输入框：Enter / 失焦提交，Esc 取消 */

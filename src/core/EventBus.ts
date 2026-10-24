@@ -26,6 +26,10 @@ export class EventBus<Events extends object> {
 /** 全局事件表。新增可扩展点时只在这里登记类型。 */
 export interface AppEvents {
   'session:created':    { id: string; title: string }
+  /** 会话正在创建（pty 还没起来）：先挂一个占位标签，避免点 + 后界面无反应 */
+  'session:creating':   { shellPath?: string }
+  /** 会话创建失败：撤掉占位标签 */
+  'session:create-failed': { reason?: string }
   'session:active':     { id: string }
   'session:closed':     { id: string }
   'session:title-changed': { id: string; title: string }
