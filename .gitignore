@@ -11,3 +11,4 @@ dev.log
 *.njsproj
 *.sln
 .workbuddy/
+build/icon-preview.png

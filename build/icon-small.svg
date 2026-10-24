@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    小尺寸专用（16 / 32 px）：同一套配色，但去掉光晕、闪电放大 15%、底板略提亮，
+    否则缩到 16px 会糊成一块黑斑。由 scripts/make-icon.mjs 用于 <=32 的尺寸。
+  -->
+  <defs>
+    <linearGradient id="plateS" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1d2534"/>
+      <stop offset="0.55" stop-color="#0c1117"/>
+      <stop offset="1" stop-color="#05080c"/>
+    </linearGradient>
+    <linearGradient id="boltS" x1="0.18" y1="0" x2="0.82" y2="1">
+      <stop offset="0" stop-color="#f2ffcc"/>
+      <stop offset="0.40" stop-color="#b4f03f"/>
+      <stop offset="1" stop-color="#34e0ad"/>
+    </linearGradient>
+    <clipPath id="plateClipS">
+      <rect x="0" y="0" width="1024" height="1024" rx="196"/>
+    </clipPath>
+  </defs>
+
+  <g clip-path="url(#plateClipS)">
+    <rect width="1024" height="1024" fill="url(#plateS)"/>
+    <path d="M659.7 132.6 L363.2 564.6 L472.6 567.7 L383.7 891.5 L659.3 456.8 L564.2 456.8 Z"
+          fill="url(#boltS)"/>
+  </g>
+</svg>

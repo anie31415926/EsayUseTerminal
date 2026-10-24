@@ -1,5 +1,7 @@
 # ⚡ Spark Terminal
 
+<img src="build/icon-256.png" width="96" align="right" alt="Spark Terminal icon" />
+
 一个基于 **Electron + xterm.js + node-pty** 的轻量、年轻、可扩展终端窗口。
 VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 
