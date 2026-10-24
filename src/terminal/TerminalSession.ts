@@ -1,0 +1,220 @@
+import { Terminal } from '@xterm/xterm'
+import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
+import { SearchAddon } from '@xterm/addon-search'
+import { WebglAddon } from '@xterm/addon-webgl'
+import '@xterm/xterm/css/xterm.css'
+import { themeManager } from '../core/ThemeManager'
+import { bus } from '../core/EventBus'
+
+export interface SessionOptions {
+  shellPath?: string
+  cwd?: string
+}
+
+const FONT_KEY = 'spark.fontSize'
+const ZOOM_KEY = 'spark.zoom'
+export const FONT_MIN = 8
+export const FONT_MAX = 32
+
+function loadNum(key: string, fallback: number, min: number, max: number): number {
+  try {
+    const raw = localStorage.getItem(key)
+    const v = raw == null ? NaN : Number(raw)
+    if (!Number.isFinite(v)) return fallback
+    return Math.min(max, Math.max(min, v))
+  } catch {
+    return fallback
+  }
+}
+
+/**
+ * TerminalSession —— 一个终端标签对应的完整会话。
+ * 内部组合 xterm 渲染器 + node-pty 连接，对外只暴露 show/hide/dispose/setZoom。
+ * 支持 adopt()：渲染进程热重载后，重新绑定主管里仍活着的 pty 会话。
+ */
+export class TerminalSession {
+  readonly term: Terminal
+  readonly fit: FitAddon
+  readonly search: SearchAddon
+  readonly host: HTMLDivElement
+  shellPath: string
+
+  ptyId = ''
+  private unsubscribeData: (() => void) | null = null
+  private unsubscribeExit: (() => void) | null = null
+  private offTheme: (() => void) | null = null
+  private baseFontSize: number
+  private zoomFactor: number
+  private exited = false
+
+  constructor(opts: SessionOptions = {}) {
+    this.baseFontSize = loadNum(FONT_KEY, 13, FONT_MIN, FONT_MAX)
+    this.zoomFactor = loadNum(ZOOM_KEY, 1, 0.5, 2.5)
+
+    this.term = new Terminal({
+      fontFamily: 'Cascadia Code, JetBrains Mono, Consolas, "Courier New", monospace',
+      fontSize: Math.round(this.baseFontSize * this.zoomFactor),
+      fontWeight: 400,
+      cursorBlink: true,
+      cursorStyle: 'bar',
+      scrollback: 5000,
+      theme: themeManager.xtermTheme(),
+      allowProposedApi: true,
+      macOptionIsMeta: false
+    })
+
+    this.fit = new FitAddon()
+    this.search = new SearchAddon()
+    this.term.loadAddon(this.fit)
+    this.term.loadAddon(new WebLinksAddon())
+    this.term.loadAddon(this.search)
+
+    // GPU 加速渲染；丢失上下文时自动回退到 DOM 渲染
+    try {
+      const webgl = new WebglAddon()
+      webgl.onContextLoss(() => webgl.dispose())
+      this.term.loadAddon(webgl)
+    } catch { /* 无 WebGL 环境继续用 canvas */ }
+
+    this.host = document.createElement('div')
+    this.host.className = 'session-host'
+    this.host.style.display = 'none'
+
+    // 用户在终端里的输入 -> 写到 pty
+    this.term.onData((data) => {
+      if (this.ptyId) window.spark.write(this.ptyId, data)
+    })
+
+    // 终端尺寸变化 -> 同步给 pty（必须，否则输出换行错乱）
+    this.term.onResize(({ cols, rows }) => {
+      if (this.ptyId) window.spark.resize(this.ptyId, cols, rows)
+      bus.emit('term:resize', { id: this.ptyId, cols, rows })
+    })
+
+    // 终端标题（Windows 下 cmd/PowerShell 会通过 OSC 0/2 改窗口标题）
+    this.term.onTitleChange((title) => {
+      bus.emit('session:title-changed', { id: this.ptyId, title })
+    })
+
+    // 主题切换生效到已打开的实例
+    this.offTheme = bus.on('theme:changed', () => {
+      this.term.options.theme = themeManager.xtermTheme()
+    })
+
+    // 快捷键：Ctrl+Shift+C/V 保留为备用；主用 Ctrl+C/V（VSCode 风格：有选中才复制，否则放行 SIGINT）
+    this.term.attachCustomKeyEventHandler((ev) => {      if (ev.type !== 'keydown') return true
+      const mod = ev.ctrlKey
+      const shift = ev.shiftKey
+      const code = ev.code
+      const key = ev.key.toLowerCase()
+
+      // Ctrl+Shift+C / Ctrl+Shift+V 备用
+      if (mod && shift && code === 'KeyC') {
+        const sel = this.term.getSelection()
+        if (sel) navigator.clipboard.writeText(sel)
+        return false
+      }
+      if (mod && shift && code === 'KeyV') {
+        navigator.clipboard.readText().then((t) => this.term.paste(t))
+        return false
+      }
+
+      // Ctrl+C：永远拦截（包括 xterm 双击选中时合成的那个），不发给 shell
+      if (mod && !shift && (code === 'KeyC' || key === 'c')) {
+        const sel = this.term.getSelection()
+        if (sel) navigator.clipboard.writeText(sel)
+        return false
+      }
+      // Ctrl+V：粘贴
+      if (mod && !shift && code === 'KeyV') {
+        navigator.clipboard.readText().then((t) => this.term.paste(t))
+        return false
+      }
+
+      if (mod && !shift && key === 'l') {
+        this.term.clear()
+        return false
+      }
+      // Ctrl+F 由 main.ts 的窗口级 keydown 统一处理（焦点不在终端也能弹），
+      // 这里再 emit 一次会 toggle 两次 = 开了又关
+      return true
+    })
+
+    this.shellPath = opts.shellPath ?? ''
+  }
+
+  async start(cwd?: string) {
+    const { id } = await window.spark.spawn({
+      cols: this.term.cols || 80, rows: this.term.rows || 24,
+      cwd, shell: this.shellPath || undefined
+    })
+    this.ptyId = id
+    this.bindPty(id)
+    this.openTerminal()
+  }
+
+  /** 渲染进程热重载后：接管主管里仍存在的 pty 会话，不重新 spawn */
+  async adopt(ptyId: string, shellPath: string) {
+    this.ptyId = ptyId
+    this.shellPath = shellPath
+    this.bindPty(ptyId)
+    this.openTerminal()
+    // 让 pty 立刻按当前视口回吐一屏内容（PowerShell/cmd 不会主动重绘）
+    window.spark.resize(ptyId, this.term.cols, this.term.rows)
+  }
+
+  private bindPty(id: string) {
+    this.unsubscribeData?.()
+    this.unsubscribeExit?.()
+    this.unsubscribeData = window.spark.onData(id, (data) => {
+      if (!this.exited) this.term.write(data)
+    })
+    this.unsubscribeExit = window.spark.onExit(id, () => {
+      this.exited = true
+      this.term.write('\r\n\x1b[90m[进程已退出，标签可关闭]\x1b[0m\r\n')
+      bus.emit('session:exited', { id })
+    })
+  }
+
+  private openTerminal() {
+    if (!this.term.element) this.term.open(this.host)
+    this.fit.fit()
+  }
+
+  show() { this.host.style.display = 'block'; requestAnimationFrame(() => this.fit.fit()) }
+  hide() { this.host.style.display = 'none' }
+
+  focus() { this.term.focus() }
+  hasFocus() { return document.activeElement === this.term.textarea }
+
+  isExited() { return this.exited }
+
+  /** 运行时改字号（独立于缩放），写入持久化 */
+  setFontSize(size: number) {
+    this.baseFontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(size)))
+    try { localStorage.setItem(FONT_KEY, String(this.baseFontSize)) } catch { /* 无痕模式忽略 */ }
+    this.term.options.fontSize = Math.round(this.baseFontSize * this.zoomFactor)
+    this.fit.fit()
+  }
+  getFontSize() { return this.baseFontSize }
+
+  /** 滚轮/快捷键缩放：factor 1 = 100%，步进 0.1 */
+  setZoom(factor: number) {
+    this.zoomFactor = Math.min(2.5, Math.max(0.5, factor))
+    try { localStorage.setItem(ZOOM_KEY, String(this.zoomFactor)) } catch { /* 忽略 */ }
+    this.term.options.fontSize = Math.round(this.baseFontSize * this.zoomFactor)
+    this.fit.fit()
+    bus.emit('zoom:changed', { factor: this.zoomFactor })
+  }
+  getZoom() { return this.zoomFactor }
+
+  dispose() {
+    this.unsubscribeData?.()
+    this.unsubscribeExit?.()
+    this.offTheme?.()
+    if (this.ptyId) window.spark.kill(this.ptyId)
+    this.term.dispose()
+    this.host.remove()
+  }
+}

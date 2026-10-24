@@ -1,0 +1,53 @@
+{
+  "name": "spark-terminal",
+  "version": "0.1.0",
+  "description": "A lightweight, youthful, extensible terminal emulator built on Electron + xterm.js + node-pty.",
+  "main": "out/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron-vite dev",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "dist": "electron-vite build && electron-builder"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^20.14.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^2.3.0",
+    "eslint": "^10.13.0",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.5",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.72.0",
+    "vite": "^5.3.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/addon-search": "^0.15.0",
+    "@xterm/addon-web-links": "^0.11.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^5.5.0",
+    "node-pty": "^1.0.0"
+  },
+  "build": {
+    "appId": "com.sparkterminal.app",
+    "productName": "SparkTerminal",
+    "directories": { "output": "dist" },
+    "files": ["out/**/*", "build/icon.*"],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": ["nsis"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Spark Terminal"
+    }
+  }
+}

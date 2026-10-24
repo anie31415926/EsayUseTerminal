@@ -1,0 +1,2 @@
+/* 预留：未来新增主题时，新建 theme-xxx.css 并在 ThemeManager 里登记。
+   当前 neon 主题的 CSS 变量直接复用 base.css 中的 :root 即可。 */

@@ -1,0 +1,368 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #0e1116;
+  --bg-elev: #161b22;
+  --bg-hover: #1f2630;
+  --fg: #e6edf3;
+  --fg-dim: #8b949e;
+  --border: #21262d;
+  --accent: #a3e635;        /* 青柠主色 */
+  --accent-2: #8b5cf6;      /* 电光紫辅色 */
+  --danger: #ff5d5d;
+  --titlebar-h: 38px;
+  --statusbar-h: 26px;
+  --radius: 8px;
+}
+
+html, body, #app {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 12px;
+  color: var(--fg);
+  background: var(--bg);
+  user-select: none;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- TitleBar ---------- */
+#titlebar {
+  height: var(--titlebar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(180deg, var(--bg-elev) 0%, var(--bg) 100%);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+#titlebar .drag-region {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  flex: 1;
+  height: 100%;
+  overflow: hidden;
+}
+#titlebar .no-drag { -webkit-app-region: no-drag; display: flex; height: 100%; }
+
+.logo {
+  font-weight: 700;
+  font-size: 13px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-right: 8px;
+  letter-spacing: 0.5px;
+}
+
+/* ---------- Tabs ---------- */
+#tabbar {
+  display: flex;
+  align-items: stretch;
+  height: 100%;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+#tabbar::-webkit-scrollbar { display: none; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  min-width: 120px;
+  max-width: 200px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: transparent;
+  color: var(--fg-dim);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s, color 0.15s;
+  -webkit-app-region: no-drag;   /* 关键：标签本身可点，空白处仍可拖窗口 */
+}
+.tab:hover { background: var(--bg-hover); color: var(--fg); }
+.tab.active {
+  background: var(--bg);
+  color: var(--fg);
+}
+.tab.active::after {
+  content: "";
+  position: absolute;
+  left: 10px; right: 10px; bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+.tab-title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+}
+.tab-close {
+  border: 0; background: transparent; color: inherit;
+  width: 16px; height: 16px; border-radius: 4px;
+  cursor: pointer; font-size: 14px; line-height: 1;
+  display: grid; place-items: center;
+}
+.tab-close:hover { background: rgba(255,93,93,0.2); color: var(--danger); }
+
+.ghost-btn {
+  -webkit-app-region: no-drag;
+  border: 0; background: transparent; color: var(--fg-dim);
+  width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+  font-size: 16px;
+}
+.ghost-btn:hover { background: var(--bg-hover); color: var(--accent); }
+
+/* ---------- Window controls ---------- */
+.window-controls button {
+  width: 46px; border: 0; background: transparent; color: var(--fg-dim);
+  cursor: pointer; font-size: 13px;
+}
+.window-controls button:hover { background: var(--bg-hover); color: var(--fg); }
+.window-controls button.close:hover { background: var(--danger); color: #fff; }
+
+/* ---------- 工作区栏 ---------- */
+#workspace-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+#workspace-bar .ws-label {
+  font-size: 11px;
+  color: var(--fg-dim);
+  flex-shrink: 0;
+}
+#workspace-bar input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 12px;
+  padding: 3px 8px;
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+#workspace-bar input:focus { border-color: var(--accent); }
+#workspace-bar button {
+  -webkit-app-region: no-drag;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--fg-dim);
+  border-radius: 5px; cursor: pointer; font-size: 13px;
+}
+#workspace-bar button:hover { background: var(--bg-hover); color: var(--accent); }
+
+/* ---------- Terminal host ---------- */
+#terminal-host {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: var(--term-bg, #0e1116);
+}
+.session-host {
+  position: absolute;
+  inset: 0;
+  padding: 6px 8px;
+}
+.session-host .xterm { height: 100%; }
+
+/* 美化 xterm 自带滚动条 —— 现在用自定义滚动条，把原生的藏掉 */
+.xterm-viewport::-webkit-scrollbar { width: 0; display: none; }
+
+/* ---------- 自定义右侧滚动条（常显） ---------- */
+.scrollbar-track {
+  position: absolute;
+  right: 0; top: 0; bottom: 0;
+  width: 12px;
+  background: rgba(255,255,255,0.04);
+  z-index: 1000;
+  cursor: pointer;
+}
+.scrollbar-track:hover { background: rgba(255,255,255,0.08); }
+.scrollbar-thumb {
+  position: absolute;
+  left: 2px; right: 2px;
+  min-height: 24px;
+  background: rgba(163, 230, 53, 0.4);
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+.scrollbar-thumb:hover,
+.scrollbar-thumb:active { background: var(--accent); }
+
+/* ---------- StatusBar ---------- */
+#statusbar {
+  height: var(--statusbar-h);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 12px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+#statusbar .spacer { flex: 1; }
+#statusbar #status-shell { color: var(--accent); font-weight: 600; }
+
+/* ---------- 体验优化 ---------- */
+/* 关闭按钮默认淡，hover 标签才显形，避免视觉噪音 */
+.tab-close { opacity: 0.4; transition: opacity 0.15s; }
+.tab:hover .tab-close, .tab.active .tab-close { opacity: 1; }
+
+/* 空状态：没有标签时的引导 */
+.empty-state {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  color: var(--fg-dim);
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.8;
+  pointer-events: none;
+}
+.empty-state kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  font-family: inherit;
+  font-size: 11px;
+}
+
+/* 终端右键菜单 */
+.context-menu {
+  position: fixed;
+  min-width: 160px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 9999;
+  font-size: 12px;
+}
+.context-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 6px 10px;
+  border: 0; background: transparent; color: var(--fg);
+  border-radius: 5px; cursor: pointer;
+  font-size: 12px; text-align: left;
+}
+.context-menu button:hover { background: var(--bg-hover); }
+.context-menu button .shortcut { color: var(--fg-dim); font-size: 11px; }
+.context-menu .separator {
+  height: 1px; background: var(--border); margin: 4px 6px;
+}
+
+/* ---------- 死会话标签（进程已退出） ---------- */
+.tab.dead { color: var(--fg-dim); opacity: 0.55; }
+.tab.dead .tab-title { text-decoration: line-through; text-decoration-color: var(--danger); }
+
+/* ---------- 查找框（Ctrl+F） ---------- */
+.findbar {
+  position: fixed;
+  right: 16px;
+  top: 46px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+  z-index: 9000;
+}
+.findbar-input {
+  width: 200px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  outline: none;
+}
+.findbar-input:focus { border-color: var(--accent); }
+.findbar-btn {
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  border: 0; background: transparent; color: var(--fg-dim);
+  border-radius: 5px; cursor: pointer; font-size: 13px;
+}
+.findbar-btn:hover { background: var(--bg-hover); color: var(--fg); }
+
+/* ---------- 设置面板 ---------- */
+.settings-panel {
+  position: fixed;
+  z-index: 9500;
+  min-width: 260px;
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0,0,0,0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--fg);
+}
+.settings-row { display: flex; align-items: center; gap: 10px; }
+.settings-key-wrap { display: flex; align-items: center; gap: 8px; width: 84px; flex: none; }
+.settings-key { color: var(--fg-dim); }
+.settings-value { color: var(--accent); font-weight: 700; min-width: 20px; }
+.settings-slider {
+  flex: 1;
+  height: 4px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+.settings-select {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+.settings-select:focus { border-color: var(--accent); }
+.settings-hint { color: var(--fg-dim); font-size: 11px; }
+
+/* ---------- 状态栏齿轮 ---------- */
+.status-gear {
+  border: 0; background: transparent; color: var(--fg-dim);
+  width: 22px; height: 20px; border-radius: 5px; cursor: pointer;
+  font-size: 13px; line-height: 1;
+}
+.status-gear:hover { background: var(--bg-hover); color: var(--accent); }
+
