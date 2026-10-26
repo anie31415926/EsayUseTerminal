@@ -1,6 +1,6 @@
 {
   "name": "spark-terminal",
-  "version": "0.1.7",
+  "version": "0.1.10",
   "description": "A lightweight, youthful, extensible terminal emulator built on Electron + xterm.js + node-pty.",
   "main": "out/main/index.js",
   "type": "module",
@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "node --test tests/startup-cache.test.mjs && node tests/run-regressions.mjs",
+    "test:native": "node tests/run-regressions.mjs --native",
     "dist": "node scripts/build.mjs && electron-builder"
   },
   "devDependencies": {

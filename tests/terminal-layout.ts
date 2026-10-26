@@ -72,6 +72,82 @@ export async function runLayoutTests(test: (name: string, fn: () => void | Promi
         assert(session.term.rows === session.fit.proposeDimensions()?.rows, 'terminal rows did not follow the resized draft')
       }
     })
+    await test('switching from the draft to terminal input keeps the latest output visible', async () => {
+      for (let i = 0; i < 3; i++) {
+        session.enableInputEditor()
+        await settle()
+        session.term.scrollToBottom()
+        await settle()
+        const button = document.querySelector<HTMLButtonElement>('.input-editor:not([hidden]) .input-editor-terminal')!
+        button.focus()
+        button.click()
+        await settle()
+        const buffer = session.term.buffer.active
+        assert(buffer.viewportY === buffer.baseY, `input switch moved latest output to ${buffer.viewportY}/${buffer.baseY}`)
+        assert(session.hasFocus(), 'input switch did not focus the terminal')
+      }
+    })
+    await test('input mode switches preserve the historical line being read and retain the draft', async () => {
+      session.enableInputEditor()
+      await settle()
+      const draft = document.querySelector<HTMLTextAreaElement>('.input-editor:not([hidden]) textarea')!
+      draft.value = 'unsent draft'
+      for (let i = 0; i < 3; i++) {
+        session.term.scrollToLine(100)
+        await settle()
+        const buffer = session.term.buffer.active
+        const first = buffer.getLine(buffer.viewportY)!.translateToString(true)
+        session.toggleInputEditor()
+        await settle()
+        assert(buffer.getLine(buffer.viewportY)!.translateToString(true) === first, `hiding draft moved history to ${buffer.viewportY}`)
+        session.toggleInputEditor()
+        await settle()
+        assert(buffer.getLine(buffer.viewportY)!.translateToString(true) === first, `showing draft moved history to ${buffer.viewportY}`)
+        assert(draft.value === 'unsent draft' && document.activeElement === draft, 'mode switch lost the draft or input focus')
+      }
+    })
+    await test('input mode switches restore history after a native focus scroll during the layout change', async () => {
+      session.enableInputEditor()
+      await settle()
+      session.term.scrollToLine(100)
+      await settle()
+      const buffer = session.term.buffer.active
+      const first = buffer.getLine(buffer.viewportY)!.translateToString(true)
+      let focusScroll = false
+      const focus = session.term.focus
+      session.term.focus = () => { focus.call(session.term); focusScroll = true; session.term.scrollToTop() }
+      try {
+        document.querySelector<HTMLButtonElement>('.input-editor:not([hidden]) .input-editor-terminal')!.click()
+        await settle()
+        assert(focusScroll, 'focus scroll scenario was not exercised')
+        assert(buffer.getLine(buffer.viewportY)!.translateToString(true) === first, `focus scroll was captured as the new history position ${buffer.viewportY}`)
+      } finally {
+        session.term.focus = focus
+        session.enableInputEditor()
+        await settle()
+      }
+    })
+    await test('switching input at the bottom restores follow-output even if focus resets the viewport', async () => {
+      session.enableInputEditor()
+      await settle()
+      session.term.scrollToBottom()
+      await settle()
+      const focus = session.term.focus
+      session.term.focus = () => { focus.call(session.term); session.term.scrollToTop() }
+      try {
+        session.toggleInputEditor()
+        await settle()
+        const buffer = session.term.buffer.active
+        assert(buffer.baseY > 0 && buffer.viewportY === buffer.baseY, `switching input lost bottom position: ${buffer.viewportY}/${buffer.baseY}`)
+        await write(session, 'latest output after input switch\r\n')
+        await settle()
+        assert(buffer.viewportY === buffer.baseY, 'input switch stopped following new output')
+      } finally {
+        session.term.focus = focus
+        session.enableInputEditor()
+        await settle()
+      }
+    })
     await test('resizing the viewport preserves a historical line while the terminal is not following output', async () => {
       session.term.scrollToLine(100)
       await settle()

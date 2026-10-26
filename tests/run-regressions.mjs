@@ -27,7 +27,8 @@ import process from 'node:process'
     const env = { ...process.env, SPARK_TEST_HTML: join(testDir, 'index.html'), SPARK_TEST_DATA: join(testDir, 'profile'), SPARK_TEST_PRELOAD: join(testDir, 'preload.cjs') }
     delete env.ELECTRON_RUN_AS_NODE
     delete env.SPARK_AUTO_PACK
-    for (const driver of ['driver.cjs', 'windows.cjs']) {
+    const drivers = process.argv.includes('--native') ? ['windows.cjs'] : process.argv.includes('--ui') ? ['driver.cjs'] : ['driver.cjs', 'windows.cjs']
+    for (const driver of drivers) {
       await writeFile(join(testDir, 'package.json'), JSON.stringify({ main: driver }))
       const child = spawn(electron, [testDir], { env, stdio: 'inherit', windowsHide: true })
       process.exitCode = await new Promise((resolve, reject) => {

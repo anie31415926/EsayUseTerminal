@@ -7,6 +7,8 @@ import { promisify } from 'node:util'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { shellArguments } from './shellIntegration'
+import { DraftEditorBridge, draftEditorEnvironment } from './draftEditor'
+import { ProcessTreeCleanup } from './ProcessTreeCleanup'
 import type { PtyCompatibility } from '../src/shared/pty'
 
 const compatibility: PtyCompatibility = process.platform === 'win32'
@@ -23,14 +25,14 @@ const execFileAsync = promisify(execFile)
  * conpty.dll 的 kill 走另一条分支，不 fork agent，因此彻底没有这个问题。
  * dll 加载不出来时（比如被安全软件拦）自动回退系统 ConPTY，功能不受影响。
  */
-function spawnPty(shellPath: string, cwd: string, cols: number, rows: number): pty.IPty {
+function spawnPty(shellPath: string, cwd: string, cols: number, rows: number, editorEnv: Record<string, string>): pty.IPty {
   // windowsHide 在 typings 里没收录，但运行时透传给 ConPTY/winpty，保留兜底
   const opts: pty.IWindowsPtyForkOptions & { windowsHide?: boolean } = {
     name: 'xterm-256color',
     cols,
     rows,
     cwd,
-    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+    env: { ...process.env, TERM: 'xterm-256color', ...editorEnv } as Record<string, string>,
     // windowsHide: 兜底老版本 ConPTY 不可用时避免弹出黑框
     windowsHide: true,
     useConpty: true
@@ -71,13 +73,22 @@ class PtySession {
   private buf = ''
   private flushTimer: NodeJS.Timeout | null = null
   private disposables: { dispose: () => void }[] = []
+  private editor: DraftEditorBridge | null = null
 
   constructor(win: BrowserWindow, shellPath: string, cwd: string, cols: number, rows: number) {
     this.id = randomUUID()
     this.ownerId = win.webContents.id
     this.win = win
     this.shellPath = shellPath
-    this.proc = spawnPty(shellPath, cwd, cols, rows)
+    if (process.platform === 'win32') {
+      this.editor = new DraftEditorBridge(
+        (request) => { if (canSend(win)) win.webContents.send(`pty:edit:${this.id}`, request) },
+        (id) => { if (canSend(win)) win.webContents.send(`pty:edit-closed:${this.id}`, id) }
+      )
+    }
+    try {
+      this.proc = spawnPty(shellPath, cwd, cols, rows, this.editor ? { ...draftEditorEnvironment(), SPARK_DRAFT_PIPE: this.editor.pipe } : {})
+    } catch (error) { this.editor?.dispose(); throw error }
 
     // pty 输出 -> 合帧后推给渲染进程（高频 cat/日志输出时按 ~16ms 合批，减少 IPC 洪水）
     this.disposables.push(this.proc.onData((data) => {
@@ -87,6 +98,7 @@ class PtySession {
 
     this.disposables.push(this.proc.onExit(({ exitCode, signal }) => {
       this.exited = true
+      this.editor?.dispose()
       this.flush()
       if (canSend(win)) {
         win.webContents.send(`pty:exit:${this.id}`, { exitCode, signal })
@@ -102,6 +114,7 @@ class PtySession {
   }
 
   write(data: string) { this.proc.write(data) }
+  completeEdit(id: string, text: string | null) { this.editor?.complete(id, text) }
   resize(cols: number, rows: number) {
     try { this.proc.resize(cols, rows) } catch { /* 已退出的 pty 忽略 */ }
   }
@@ -110,14 +123,17 @@ class PtySession {
   kill() {
     if (this.exited) return
     this.exited = true            // 先置位再 kill，防止 onExit 与调用方重入
+    this.editor?.dispose()
     if (this.flushTimer) { clearTimeout(this.flushTimer); this.flushTimer = null }
     for (const d of this.disposables) { try { d.dispose() } catch { /* noop */ } }
     this.disposables = []
-    try { this.proc.kill() } catch { /* noop */ }
+    processCleanup.terminate(this.proc)
   }
 }
 
 const sessions = new Map<string, PtySession>()
+const processCleanup = new ProcessTreeCleanup()
+let shuttingDown = false
 
 /**
  * shell 白名单：渲染进程只允许从探测到的候选里挑，不给任意 exe 开口子。
@@ -185,10 +201,12 @@ function resolveCwd(value = ''): string {
 }
 
 export function killAllSessions() {
+  shuttingDown = true
   for (const s of [...sessions.values()]) {
     if (!s.isExited()) s.kill()
   }
   sessions.clear()
+  return processCleanup.drain()
 }
 
 export function killWindowSessions(ownerId: number) {
@@ -210,6 +228,7 @@ export function registerPtyIpc() {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) throw new Error('窗口已销毁，无法创建终端会话')
     const { path: shellPath, candidates } = await resolveShell(opts?.shell)
+    if (shuttingDown) throw new Error('应用正在退出，已取消创建终端')
     if (!canSend(win)) throw new Error('窗口已关闭，已取消创建终端')
     const requestedCwd = opts?.cwd ?? ''
     const cwd = resolveCwd(requestedCwd)
@@ -221,6 +240,11 @@ export function registerPtyIpc() {
   })
 
   ipcMain.on('pty:write', (e, id: string, data: string) => ownedSession(e.sender.id, id)?.write(data))
+  ipcMain.handle('pty:edit-complete', (e, sessionId: string, requestId: string, text: string | null) => {
+    const session = ownedSession(e.sender.id, sessionId)
+    if (!session) throw new Error('终端已关闭')
+    session.completeEdit(requestId, text)
+  })
   ipcMain.on('pty:resize', (e, id: string, cols: number, rows: number) => ownedSession(e.sender.id, id)?.resize(cols, rows))
   ipcMain.on('pty:kill', (e, id: string) => {
     const session = ownedSession(e.sender.id, id)

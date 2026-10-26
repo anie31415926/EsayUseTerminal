@@ -44,7 +44,12 @@ export class InputEditor {
     this.element.append(this.error)
     this.textarea.addEventListener('paste', (event) => this.images.handlePaste(event))
     this.textarea.addEventListener('input', () => { this.error.hidden = true })
-    this.unregister = registerInputShortcut('input.submit', this.textarea, () => { void this.submit() }, `editor-${++nextId}`)
+    const instance = `editor-${++nextId}`
+    const handlers = [
+      registerInputShortcut('input.submit', this.textarea, () => { void this.submit() }, instance),
+      registerInputShortcut('input.selectAll', this.textarea, () => this.textarea.select(), instance)
+    ]
+    this.unregister = () => handlers.forEach((off) => off())
   }
 
   private async submit() {
@@ -82,7 +87,7 @@ export class InputEditor {
   addImage(image: ImageAttachment) { this.images.add(image) }
 
   show(visible: boolean) { this.element.hidden = !visible }
-  focus() { this.textarea.focus() }
+  focus() { this.textarea.focus({ preventScroll: true }) }
   hasFocus() { return document.activeElement === this.textarea }
   undo() { if (this.hasFocus() && !this.submitting) document.execCommand('undo') }
   redo() { if (this.hasFocus() && !this.submitting) document.execCommand('redo') }

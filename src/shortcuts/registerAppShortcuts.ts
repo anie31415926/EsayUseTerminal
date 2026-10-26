@@ -38,6 +38,7 @@ export function registerAppShortcuts(controller: TerminalController, newTab: () 
   terminal('terminal.copy', () => controller.active()?.copySelection())
   terminal('terminal.paste', () => { void controller.active()?.pasteFromClipboard() })
   terminal('terminal.clear', () => controller.active()?.term.clear())
+  terminal('input.selectAll', () => controller.active()?.selectAllInput())
   for (const [command, action] of [
     ['terminal.undo', () => controller.active()?.undoInput()],
     ['terminal.redo', () => controller.active()?.redoInput()]

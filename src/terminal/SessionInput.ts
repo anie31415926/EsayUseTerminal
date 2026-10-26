@@ -12,7 +12,12 @@ export class SessionInput {
   private cancelSend: (() => void) | null = null
   private target: TerminalInputTarget
 
-  constructor(private term: Terminal, private write: (data: string) => void, private isAlive: () => boolean) {
+  constructor(
+    private term: Terminal,
+    private write: (data: string) => void,
+    private isAlive: () => boolean,
+    private beforeLayoutChange: () => void
+  ) {
     this.target = new TerminalInputTarget(term)
   }
 
@@ -30,14 +35,16 @@ export class SessionInput {
   toggle() {
     if (!this.editor || !this.enabled) this.enable(this.active)
     else {
+      this.beforeLayoutChange()
       this.enabled = false
-      this.editor.show(false)
       this.term.focus()
+      this.editor.show(false)
     }
   }
 
   show(active: boolean) {
     this.active = active
+    if (this.editor) this.beforeLayoutChange()
     this.editor?.show(active && this.enabled)
   }
 
@@ -48,6 +55,7 @@ export class SessionInput {
   }
 
   hasFocus() { return !!this.editor?.hasFocus() && this.enabled }
+  supportsDraftEditor() { return this.target.supportsDraftEditor() }
   undo() { this.editor?.undo() }
   redo() { this.editor?.redo() }
 

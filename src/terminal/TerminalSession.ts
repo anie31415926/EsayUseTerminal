@@ -9,6 +9,7 @@ import { bus } from '../core/EventBus'
 import { shortcuts } from '../shortcuts'
 import { SessionInput } from './SessionInput'
 import { TerminalLayout } from './TerminalLayout'
+import { NativeDraftEditor } from '../ui/NativeDraftEditor'
 import type { PtyCompatibility } from '../shared/pty'
 
 export interface SessionOptions {
@@ -53,6 +54,9 @@ export class TerminalSession {
   private webgl: WebglAddon | null = null
   private input: SessionInput
   private layout: TerminalLayout
+  private draftEditor: NativeDraftEditor | null = null
+  private offEdit: (() => void) | null = null
+  private offEditClosed: (() => void) | null = null
 
   constructor(opts: SessionOptions = {}) {
     this.baseFontSize = loadNum(FONT_KEY, 13, FONT_MIN, FONT_MAX)
@@ -87,7 +91,10 @@ export class TerminalSession {
     this.host.className = 'session-host'
     this.host.style.display = 'none'
     this.layout = new TerminalLayout(this.host, this.term, this.fit)
-    this.input = new SessionInput(this.term, (data) => this.writeInput(data), () => !!this.ptyId && !this.exited)
+    this.input = new SessionInput(
+      this.term, (data) => this.writeInput(data), () => !!this.ptyId && !this.exited,
+      () => this.layout.schedule()
+    )
 
     // 用户在终端里的输入 -> 写到 pty
     this.term.onData((data) => {
@@ -144,6 +151,12 @@ export class TerminalSession {
 
   undoInput() { if (this.input.hasFocus()) this.input.undo(); else this.writeInput('\x1a') }
   redoInput() { if (this.input.hasFocus()) this.input.redo(); else this.writeInput('\x19') }
+  selectAllInput() {
+    if (this.exited) return
+    if (this.input.supportsDraftEditor() && this.draftEditor) {
+      if (this.draftEditor.selectNext()) this.writeInput('\x07')
+    } else this.writeInput('\x01')
+  }
   hasInputFocus() { return this.hasFocus() || this.input.hasFocus() }
   enableInputEditor() { this.input.enable(this.host.style.display !== 'none') }
   toggleInputEditor() { this.input.toggle() }
@@ -176,12 +189,23 @@ export class TerminalSession {
   private bindPty(id: string) {
     this.unsubscribeData?.()
     this.unsubscribeExit?.()
+    this.offEdit?.()
+    this.offEditClosed?.()
+    this.draftEditor?.dispose()
+    if (window.spark.onEdit) {
+      this.draftEditor = new NativeDraftEditor((requestId, text) => window.spark.completeEdit(id, requestId, text), () => {
+        if (!this.exited && this.host.style.display !== 'none') this.term.focus()
+      })
+      this.offEdit = window.spark.onEdit(id, (request) => this.draftEditor?.open(request, this.host.style.display !== 'none'))
+      this.offEditClosed = window.spark.onEditClosed(id, (requestId) => this.draftEditor?.closeRequest(requestId))
+    }
     this.unsubscribeData = window.spark.onData(id, (data) => {
       if (!this.exited) this.term.write(data)
     })
     this.unsubscribeExit = window.spark.onExit(id, () => {
       this.exited = true
       this.input.dispose()
+      this.draftEditor?.dispose()
       this.term.write('\r\n\x1b[90m[进程已退出，标签可关闭]\x1b[0m\r\n')
       bus.emit('session:exited', { id })
     })
@@ -192,7 +216,7 @@ export class TerminalSession {
     this.layout.schedule()
   }
 
-  show() { this.host.style.display = 'block'; this.input.show(true); this.layout.schedule() }
+  show() { this.host.style.display = 'block'; this.input.show(true); this.layout.schedule(); this.draftEditor?.show(true) }
   hide() { this.host.style.display = 'none'; this.input.show(false) }
 
   focus() { if (!this.input.focus()) this.term.focus() }
@@ -221,6 +245,9 @@ export class TerminalSession {
     this.unsubscribeData?.()
     this.unsubscribeExit?.()
     this.offTheme?.()
+    this.offEdit?.()
+    this.offEditClosed?.()
+    this.draftEditor?.dispose()
     this.layout.dispose()
     this.input.dispose()
     // 已经退出的会话不能再 kill：ConPTY 会对已消失的控制台 fork 枚举进程的 agent，

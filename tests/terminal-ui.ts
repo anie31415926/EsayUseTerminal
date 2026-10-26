@@ -10,6 +10,7 @@ import { bus } from '../src/core/EventBus'
 import { showMenu } from '../src/ui/ContextMenu'
 import { runLayoutTests } from './terminal-layout'
 import { runImageInputTests } from './image-input'
+import { runNativeDraftTests } from './native-draft'
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const settle = async () => { await frame(); await frame() }
@@ -25,6 +26,7 @@ async function runRegressionTests() {
   }
   const host = document.getElementById('terminal-host')!
   await runShortcutTests(test)
+  await runNativeDraftTests(test)
   const makeTerm = () => {
     const el = document.createElement('div')
     el.className = 'session-host'
@@ -340,6 +342,18 @@ async function runRegressionTests() {
     draftKey('KeyZ', { ctrlKey: true, shiftKey: true })
     assert(editor.value === '检查这个项目', 'Ctrl+Shift+Z did not redo the local draft')
     assert(writes.length === start, 'unsent draft edits leaked to Codex')
+  })
+  await test('Ctrl+A selects only the focused unsent draft and replacement preserves undo', () => {
+    const editor = draft()
+    const start = writes.length
+    draftKey('KeyA', { ctrlKey: true })
+    assert(editor.selectionStart === 0 && editor.selectionEnd === editor.value.length, 'Ctrl+A did not select the entire draft')
+    document.execCommand('insertText', false, '替换内容')
+    assert(editor.value === '替换内容', 'typing after Ctrl+A did not replace the draft')
+    draftKey('KeyZ', { ctrlKey: true })
+    assert(editor.value === '检查这个项目', 'undo did not restore the replaced draft')
+    assert(writes.length === start, 'selecting or replacing a draft wrote to the PTY')
+    editor.setSelectionRange(editor.value.length, editor.value.length)
   })
   await test('draft Enter submits once and cannot undo already-sent text', async () => {
     const editor = draft()

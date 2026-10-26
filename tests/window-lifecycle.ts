@@ -1,11 +1,15 @@
 import { app, BrowserWindow, nativeImage } from 'electron'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { createServer } from 'node:net'
+import { execFileSync } from 'node:child_process'
 import { homedir } from 'node:os'
 import { WindowManager } from '../electron/WindowManager'
 import { killAllSessions, registerPtyIpc } from '../electron/ptyService'
 import { registerClipboardImageIpc } from '../electron/clipboardImages'
+import { DraftEditorBridge, runDraftEditorHelper } from '../electron/draftEditor'
+import { readFile } from 'node:fs/promises'
 import type { ImageAttachment } from '../src/shared/images'
 
 app.disableHardwareAcceleration()
@@ -33,6 +37,37 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 25))
     }
   }
+  const childProcesses: number[] = []
+  const isAlive = (pid: number) => { try { process.kill(pid, 0); return true } catch { return false } }
+  const occupyResource = async (win: BrowserWindow, id: string, name: string) => {
+    const stateFile = join(process.env.SPARK_TEST_DATA!, `${name}.json`)
+    const nodePath = process.env.npm_node_execpath!
+    assert.ok(nodePath, 'run this suite through npm so its Node executable is known')
+    const quote = (value: string) => `'${value.replaceAll("'", "''")}'`
+    const command = `& ${quote(nodePath)} ${quote(resolve('tests/fixtures/session-child.mjs'))} parent ${quote(stateFile)}\r`
+    await evaluate(win, `window.spark.write(${JSON.stringify(id)}, ${JSON.stringify(command)})`)
+    await waitFor(async () => existsSync(stateFile))
+    const state: { parent: number; child: number; port: number } = JSON.parse(await readFile(stateFile, 'utf8'))
+    childProcesses.push(state.parent, state.child)
+    assert.ok(isAlive(state.parent) && isAlive(state.child))
+    return state
+  }
+  const assertResourceReleased = async (state: { parent: number; child: number; port: number }) => {
+    await waitFor(async () => !isAlive(state.parent) && !isAlive(state.child))
+    await waitFor(async () => {
+      const server = createServer()
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.once('error', reject)
+          server.listen(state.port, '127.0.0.1', resolve)
+        })
+        return true
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EADDRINUSE') throw error
+        return false
+      } finally { await new Promise<void>((resolve) => server.close(() => resolve())) }
+    })
+  }
   try {
     const first = manager.create('first-pack')
     const second = manager.create('second-pack')
@@ -56,6 +91,46 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(first, "window.windowTestOutput.includes('FOREIGN_INPUT')"), false)
     console.log('PASS one window cannot write to or kill another window terminal')
 
+    const editFile = join(process.env.SPARK_TEST_DATA!, 'native-draft.md')
+    mkdirSync(process.env.SPARK_TEST_DATA!, { recursive: true })
+    writeFileSync(editFile, '中文\nfull original draft')
+    let incoming: { id: string; text: string } | null = null
+    const bridge = new DraftEditorBridge((request) => { incoming = request }, () => {})
+    const previousPipe = process.env.SPARK_DRAFT_PIPE
+    const previousArgv = [...process.argv]
+    try {
+      process.env.SPARK_DRAFT_PIPE = bridge.pipe
+      process.argv.push('--spark-edit', editFile)
+      const editing = runDraftEditorHelper()
+      await waitFor(async () => incoming !== null)
+      const request = incoming as unknown as { id: string; text: string }
+      assert.equal(request.text, '中文\nfull original draft')
+      bridge.complete(request.id, '替换 😀\nall lines')
+      await editing
+      assert.equal(await readFile(editFile, 'utf8'), '替换 😀\nall lines')
+      assert.throws(() => bridge.complete(request.id, 'replay'), /已结束/)
+      console.log('PASS native draft helper preserves full Unicode input and rejects replayed edits')
+      incoming = null
+      const cancelled = runDraftEditorHelper()
+      await waitFor(async () => incoming !== null)
+      bridge.complete((incoming as unknown as { id: string }).id, null)
+      await cancelled
+      assert.equal(await readFile(editFile, 'utf8'), '替换 😀\nall lines')
+      console.log('PASS cancelling native draft editing leaves the application file unchanged')
+      incoming = null
+      const abandoned = runDraftEditorHelper()
+      const closed = assert.rejects(abandoned, /closed/)
+      await waitFor(async () => incoming !== null)
+      bridge.dispose()
+      await closed
+      console.log('PASS closing a terminal releases its pending native editor helper')
+    } finally {
+      bridge.dispose()
+      process.argv.splice(0, process.argv.length, ...previousArgv)
+      if (previousPipe === undefined) delete process.env.SPARK_DRAFT_PIPE
+      else process.env.SPARK_DRAFT_PIPE = previousPipe
+    }
+
     const imageBytes = [...nativeImage.createFromBitmap(Buffer.from([0, 128, 255, 255]), { width: 1, height: 1 }).toPNG()]
     const screenshot = await evaluate<ImageAttachment>(first, `window.spark.images.add(new Uint8Array(${JSON.stringify(imageBytes)}))`)
     assert.ok(existsSync(screenshot.path))
@@ -77,7 +152,10 @@ app.whenReady().then(async () => {
     console.log('PASS invalid image bytes fail explicitly without creating a cached attachment')
 
     const ownerId = first.webContents.id
-    first.destroy()
+    const windowResource = await occupyResource(first, one.id, 'closed-window')
+    first.close()
+    await assertResourceReleased(windowResource)
+    console.log('PASS closing a window terminates shell descendants and releases their exclusive resources')
     await waitFor(async () => !existsSync(screenshot.path))
     assert.equal(existsSync(screenshot.path), false)
     console.log('PASS closing a window cleans up its retained screenshot files')
@@ -86,6 +164,12 @@ app.whenReady().then(async () => {
     await evaluate(second, `window.windowTestOutput = ''; window.spark.onData(${JSON.stringify(two.id)}, data => { window.windowTestOutput += data }); window.spark.write(${JSON.stringify(two.id)}, 'OWNER_INPUT')`)
     await waitFor(() => evaluate(second, "window.windowTestOutput.includes('OWNER_INPUT')"))
     console.log('PASS closing one window leaves another window terminal alive and accepting input')
+    const closedTab = await evaluate<{ id: string }>(second, 'window.spark.spawn({ cols: 80, rows: 24 })')
+    const tabResource = await occupyResource(second, closedTab.id, 'closed-tab')
+    await evaluate(second, `window.spark.kill(${JSON.stringify(closedTab.id)}); window.spark.kill(${JSON.stringify(closedTab.id)})`)
+    await assertResourceReleased(tabResource)
+    assert.deepEqual(await evaluate(second, '(async () => (await window.spark.listSessions()).map(s => s.id))()'), [two.id])
+    console.log('PASS closing a tab twice releases its process tree without affecting its window peers')
     const cwd = join(process.env.SPARK_TEST_DATA!, '..', "workspace 中文's folder")
     mkdirSync(cwd, { recursive: true })
     const quotedCwd = `"${cwd}"`
@@ -140,16 +224,29 @@ app.whenReady().then(async () => {
       await evaluate(second, `window.offVariant(); window.spark.kill(${JSON.stringify(alternate.id)})`)
       console.log(`PASS alternate shell starts in the chosen workspace and accepts commands: ${variant}`)
     }
-    second.destroy()
+    const quitting = await evaluate<{ id: string }>(second, 'window.spark.spawn({ cols: 80, rows: 24 })')
+    const quitResource = await occupyResource(second, quitting.id, 'quit-app')
+    const pendingTab = await evaluate<{ id: string }>(second, 'window.spark.spawn({ cols: 80, rows: 24 })')
+    const pendingResource = await occupyResource(second, pendingTab.id, 'pending-close')
+    await evaluate(second, `window.spark.kill(${JSON.stringify(pendingTab.id)})`)
+    second.close()
     clearTimeout(timeout)
-    killAllSessions()
+    await killAllSessions()
+    await assertResourceReleased(quitResource)
+    await assertResourceReleased(pendingResource)
+    console.log('PASS application shutdown drains window and previously closed tab process cleanup')
     // node-pty drains ConPTY output on a one-second timer after kill; let its callbacks finish.
     await new Promise((resolve) => setTimeout(resolve, 1250))
     app.quit()
   } catch (error) {
     console.error(error)
     clearTimeout(timeout)
-    killAllSessions()
-    app.exit(1)
+    await killAllSessions()
+    process.exitCode = 1
+  } finally {
+    for (const pid of childProcesses.filter(isAlive)) {
+      try { execFileSync('taskkill.exe', ['/PID', String(pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore', timeout: 5000 }) } catch {}
+    }
+    if (process.exitCode) app.exit(1)
   }
 })

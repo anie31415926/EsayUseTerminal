@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { registerPtyIpc, killAllSessions } from './ptyService'
 import { WindowManager } from './WindowManager'
 import { registerClipboardImageIpc } from './clipboardImages'
+import { runDraftEditorHelper } from './draftEditor'
 
 // 关键：让 Windows 任务栏/开始菜单识别这是独立应用，而不是 electron.exe 的默认图标
 app.setAppUserModelId('com.sparkterminal.app')
@@ -43,8 +44,11 @@ function registerWindowIpc() {
 // One coordinator shares Chromium settings safely; every launch opens an independent window.
 const allowMulti = process.env['SPARK_ALLOW_MULTI'] === '1'
 const autoPackId = process.env['SPARK_AUTO_PACK'] || ''
-const gotLock = allowMulti || app.requestSingleInstanceLock({ autoPackId })
-if (!gotLock) {
+const editingDraft = process.argv.includes('--spark-edit')
+const gotLock = !editingDraft && (allowMulti || app.requestSingleInstanceLock({ autoPackId }))
+if (editingDraft) {
+  void app.whenReady().then(runDraftEditorHelper).then(() => app.exit(0), (error) => { console.error(error); app.exit(1) })
+} else if (!gotLock) {
   app.quit()
 } else {
   app.on('second-instance', (_event, _argv, _cwd, data) => {
@@ -60,9 +64,17 @@ if (!gotLock) {
     windows.create(autoPackId)
   })
 
-  app.on('before-quit', () => {
-    // 退出前杀掉全部 pty，避免遗留 shell 子进程
-    killAllSessions()
+  let cleanupStarted = false
+  let cleanupFinished = false
+  app.on('before-quit', (event) => {
+    if (cleanupFinished) return
+    event.preventDefault()
+    if (cleanupStarted) return
+    cleanupStarted = true
+    void killAllSessions().finally(() => {
+      cleanupFinished = true
+      app.quit()
+    })
   })
 
   app.on('window-all-closed', () => {

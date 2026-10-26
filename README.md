@@ -49,6 +49,7 @@ VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 - `ui/InputEditor.ts` 只负责未发送文字的编辑、撤销和重做；`terminal/SessionInput.ts` 负责把草稿提交给当前会话，关闭会话时取消延迟发送。
 - 截图能力按职责拆分：`electron/clipboardImages.ts` 读取系统图片、归一化 PNG 并管理各窗口的临时文件；`ui/ImageAttachments.ts` 管理附件草稿和预览；`terminal/TerminalInputTarget.ts` 识别应用能力；`SessionInput` 将附件和文字交给终端。扩展其他应用的图片协议不影响剪贴板或预览组件。
 - `electron/WindowManager.ts` 管理独立窗口与启动内容包；PTY 按窗口归属列出、操作和回收。多个窗口由同一应用进程协调，共享浏览器配置，避免多个进程竞争写入配置目录。
+- `electron/ProcessTreeCleanup.ts` 统一处理终端进程树回收。Windows 关闭标签或窗口时，先结束该 shell 及其后代进程，再释放 ConPTY；退出应用会等待所有回收任务（包括刚关闭标签的任务）完成，防止 Codex 等子进程残留并继续占用对话。清理按会话 PID 定位，不按程序名批量结束进程。
 - `electron/shellIntegration.ts` 独立维护 shell 启动适配，PowerShell 加载原有 profile 后安装会话内的 Codex 命令函数；其他 shell 沿用原启动方式。Codex 的滚动兼容参数在 `src/shared/codex.ts` 统一维护，内容包与 shell 适配共享。
 - `ui/TabScroller.ts` 独立处理标签横向滚动和全部标签菜单，`TabBar` 负责提供标签数据与激活回调。
 - `core/WorkspaceManager.ts` 统一管理工作区校验与保存，`ui/WorkspaceBar.ts` 只负责输入和错误展示；主进程校验实际目录，明确路径无效时不静默回退。
@@ -115,6 +116,8 @@ Windows 安装程序输出到 `dist/SparkTerminal Setup <版本>.exe`，安装�
 | `F1` | 打开 / 关闭快捷键列表 |
 | `Ctrl + C` | 有选中则复制，无选中则发送 ETX 中断当前命令 |
 | `Ctrl + Z` | 撤销未发送文字：PowerShell 使用 PSReadLine 原生撤销，Codex 内容包使用下方独立输入框 |
+| `Ctrl + A` | 独立输入框全选文字；Codex 原生输入区打开已全选完整草稿的编辑层 |
+| `Enter` / `Ctrl + Enter` / `Esc` | Codex 编辑层内确认并返回原生输入区 / 确认 / 取消；Shift+Enter 换行 |
 | `Ctrl + Y` / `Ctrl + Shift + Z` | 重做未发送文字 |
 | `Ctrl + Shift + E` | 显示 / 隐藏当前标签的独立输入框 |
 | `Enter` / `Shift + Enter` | 独立输入框内发送 / 换行 |
@@ -122,11 +125,14 @@ Windows 安装程序输出到 `dist/SparkTerminal Setup <版本>.exe`，安装�
 
 内置 Codex 内容包在完成初始注入后默认打开独立输入框。草稿在本地编辑，发送时才整段粘贴并单独提交回车；切换标签保留各自草稿。点击“终端输入”可操作 Codex 原生交互，再按 `Ctrl+Shift+E` 返回独立输入框。直接在 Codex 原生终端输入区域键入的文字仍由 Codex 自身管理，不具备本地草稿的撤销能力；已发送的内容不属于撤销范围。
 
+在本应用新建的 PowerShell 会话中运行 `codex`，原生输入区按 `Ctrl+A` 会通过 Codex 的外部编辑接口打开编辑层，并全选完整的未发送文字。可复制、删除、替换、撤销和重做，多行或折行内容均保留；Enter 或“确认”把改动交回原来的 Codex 输入区，随后在原生输入区回车发送。Esc 或“取消”保留原稿。此功能不会全选历史输出，也不会自动发送消息。适配使用独立的草稿传输、编辑界面和统一快捷键配置，只在会话内临时替换 Codex 的 VISUAL 编辑器，退出 Codex 后恢复原值；已有自定义 codex 函数或别名仍保持不变。当前验证版本为 Codex CLI 0.164.0。
+
 截图完成后选择复制图片，在独立输入框按 `Ctrl+V`，出现缩略图后可直接回车发送，也可先输入说明。支持纯图片和多图消息；点击缩略图查看原图，点击右上角 × 移除。在终端区域粘贴截图也会自动打开草稿。图片读取完成前回车会等待附件就绪；读取或发送失败保留草稿并显示原因。
 
 当前图片发送适配 Codex CLI（已验证 0.164.0），直接运行 `codex` 和内容包启动均可。仅向已识别且启用整段粘贴的 Codex 会话发送图片；PowerShell 等普通 shell 会保留草稿并提示。单张截图最大 32 MiB，缓存为本机临时 PNG；移除未发送截图立即删除缓存，已发送截图保留到所属窗口关闭，避免 Codex 读取时文件已丢失。截图必须复制为图片，复制图片文件名或链接仍按文字粘贴。
 
 窗口缩放、字号和输入框高度变化由每个会话的 `TerminalLayout` 统一合帧处理，并同步终端实际行列数。阅读历史时通过 xterm 行标记保留位置，位于最新输出时继续跟随底部；隐藏标签不按不可见尺寸重排，重新显示后再适配可用空间。
+应用输入框与终端输入模式切换时，在隐藏输入框和切换焦点之前记录当前阅读位置，继续由 `TerminalLayout` 调整尺寸并恢复位置；恢复输入焦点不触发浏览器自动滚动。鼠标按钮和快捷键共用同一条切换流程。
 主进程在创建和恢复会话时传递 ConPTY 后端及 Windows 构建号，xterm 根据兼容信息处理窗口拉高后的重绘，避免把已进入历史区的文本重新拉入屏幕并覆盖。
 
 > 注：刻意保留 `Ctrl+W` 给终端 readline（删除前一单词），未拦截。

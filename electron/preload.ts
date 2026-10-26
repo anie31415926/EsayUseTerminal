@@ -10,6 +10,19 @@ const api = {
   spawn: (opts: { cols?: number; rows?: number; cwd?: string; shell?: string }) =>
     ipcRenderer.invoke('pty:spawn', opts) as Promise<{ id: string; shellPath: string; candidates: string[] } & PtyCompatibility>,
   write: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),
+  completeEdit: (sessionId: string, requestId: string, text: string | null) => ipcRenderer.invoke('pty:edit-complete', sessionId, requestId, text) as Promise<void>,
+  onEdit: (id: string, callback: (request: { id: string; text: string }) => void) => {
+    const channel = `pty:edit:${id}`
+    const listener = (_: unknown, request: { id: string; text: string }) => callback(request)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.off(channel, listener)
+  },
+  onEditClosed: (id: string, callback: (requestId: string) => void) => {
+    const channel = `pty:edit-closed:${id}`
+    const listener = (_: unknown, requestId: string) => callback(requestId)
+    ipcRenderer.on(channel, listener)
+    return () => ipcRenderer.off(channel, listener)
+  },
   resize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
   kill: (id: string) => ipcRenderer.send('pty:kill', id),
   detectShells: () => ipcRenderer.invoke('shell:detect') as Promise<string[]>,
