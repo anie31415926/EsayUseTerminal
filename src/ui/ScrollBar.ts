@@ -1,5 +1,4 @@
 import type { TerminalSession } from '../terminal/TerminalSession'
-import { bus } from '../core/EventBus'
 
 /**
  * 自定义右侧滚动条：
@@ -11,9 +10,9 @@ export class ScrollBar {
   private track: HTMLDivElement
   private thumb: HTMLDivElement
   private current: TerminalSession | null = null
-  private scrollDisposable: { dispose: () => void } | null = null
-  private wheelEl: HTMLElement | null = null
-  private wheelHandler: (() => void) | null = null
+  private disposables: { dispose: () => void }[] = []
+  private updateFrame: number | null = null
+  private stopDrag: (() => void) | null = null
 
   constructor(host: HTMLElement) {
     this.track = document.createElement('div')
@@ -22,16 +21,18 @@ export class ScrollBar {
     this.thumb.className = 'scrollbar-thumb'
     this.track.appendChild(this.thumb)
     host.appendChild(this.track)
+    this.thumb.hidden = true
 
     // 拖动滑块
     this.thumb.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return
       e.preventDefault()
       e.stopPropagation()
       this.startDrag(e.clientY)
     })
     // 点轨道：跳到对应位置
     this.track.addEventListener('mousedown', (e) => {
-      if (e.target === this.thumb) return
+      if (e.button !== 0 || e.target === this.thumb) return
       e.preventDefault()
       this.jumpToTrackY(e.clientY)
       this.startDrag(e.clientY) // 接着进入拖动
@@ -42,14 +43,13 @@ export class ScrollBar {
       if (e.ctrlKey) return // Ctrl+滚轮 归缩放，别同时滚内容
       e.preventDefault()
       if (!this.current) return
-      // deltaY>0 向下滚（看更老的内容），deltaY<0 向上
+      if (e.deltaY === 0) return
+      // 正数向下（较新的内容），负数向上（历史内容）。
       const lines = Math.sign(e.deltaY) * Math.max(1, Math.round(Math.abs(e.deltaY) / 30))
       this.current.term.scrollLines(lines)
     }, { passive: false })
 
-    bus.on('term:resize', () => this.update())
-    // 窗口尺寸变化后滑块比例要重算
-    window.addEventListener('resize', () => this.update())
+    new ResizeObserver(() => this.scheduleUpdate()).observe(this.track)
   }
 
   /** 当前绑定的 pty 会话 id（main 用它判断会话是否已经关闭） */
@@ -60,47 +60,52 @@ export class ScrollBar {
   bind(session: TerminalSession) {
     this.unbind()
     this.current = session
-    this.scrollDisposable = session.term.onScroll(() => {
-      if (this.current === session) this.update()
-    })
-    // 兜底：滚轮事件后下一帧再同步一次（WebGL 渲染下 onScroll 时机可能滞后）
-    // 必须记住引用，否则每次切标签都会往同一个 element 上叠一层监听
-    const el = session.term.element
-    if (el) {
-      this.wheelHandler = () => requestAnimationFrame(() => this.update())
-      this.wheelEl = el
-      el.addEventListener('wheel', this.wheelHandler, { passive: true })
-    }
+    // 内容变化不一定触发滚动；解析、缓冲区切换和尺寸变化都要同步。
+    this.disposables = [
+      session.term.onScroll(() => this.scheduleUpdate()),
+      session.term.onWriteParsed(() => this.scheduleUpdate()),
+      session.term.onRender(() => this.scheduleUpdate()),
+      session.term.onResize(() => this.scheduleUpdate()),
+      session.term.buffer.onBufferChange(() => this.scheduleUpdate())
+    ]
     this.update()
   }
 
   unbind() {
-    this.scrollDisposable?.dispose()
-    this.scrollDisposable = null
-    if (this.wheelEl && this.wheelHandler) {
-      this.wheelEl.removeEventListener('wheel', this.wheelHandler)
-    }
-    this.wheelEl = null
-    this.wheelHandler = null
+    this.stopDrag?.()
+    for (const disposable of this.disposables) disposable.dispose()
+    this.disposables = []
+    if (this.updateFrame !== null) cancelAnimationFrame(this.updateFrame)
+    this.updateFrame = null
     this.current = null
+    this.thumb.hidden = true
     this.thumb.style.height = '0px'
     this.thumb.style.transform = 'translateY(0)'
+  }
+
+  private scheduleUpdate() {
+    if (this.updateFrame !== null) return
+    this.updateFrame = requestAnimationFrame(() => {
+      this.updateFrame = null
+      this.update()
+    })
   }
 
   update() {
     if (!this.current) return
     const buf = this.current.term.buffer.active
     const rows = this.current.term.rows
-    const total = buf?.length ?? 0
-    if (!buf || total <= 0 || rows <= 0) return
-    const maxLine = Math.max(0, total - rows)
+    if (rows <= 0) return
+    const maxLine = buf.baseY
+    const total = maxLine + rows
     const viewY = buf.viewportY
     const trackH = this.track.clientHeight
     if (trackH === 0) return
 
-    const thumbH = Math.max(24, Math.round((rows / total) * trackH))
+    const thumbH = Math.min(trackH, Math.max(24, Math.round((rows / total) * trackH)))
     const maxTop = Math.max(0, trackH - thumbH)
-    const top = maxLine === 0 ? 0 : Math.round((viewY / maxLine) * maxTop)
+    const top = maxLine === 0 ? 0 : Math.round(Math.min(1, Math.max(0, viewY / maxLine)) * maxTop)
+    this.thumb.hidden = false
     this.thumb.style.height = `${thumbH}px`
     this.thumb.style.transform = `translateY(${top}px)`
     // 轨道常显，不再根据内容多少隐藏
@@ -108,34 +113,41 @@ export class ScrollBar {
 
   private startDrag(startClientY: number) {
     if (!this.current) return
-    const buf = this.current.term.buffer.active
+    this.stopDrag?.()
+    this.update()
+    const session = this.current
+    const buf = session.term.buffer.active
     const startLine = buf.viewportY
-    const maxLine = Math.max(1, buf.length - this.current.term.rows)
-    const trackH = this.track.clientHeight
-    const thumbH = this.thumb.clientHeight
-    const range = Math.max(1, trackH - thumbH)
+    const range = this.track.clientHeight - this.thumb.clientHeight
+    if (buf.baseY <= 0 || range <= 0) return
 
     const onMove = (ev: MouseEvent) => {
-      if (!this.current) return
+      if (this.current !== session || session.term.buffer.active !== buf) { onUp(); return }
       const dy = ev.clientY - startClientY
-      const lineDelta = (dy / range) * maxLine
-      this.current.term.scrollToLine(Math.round(startLine + lineDelta))
+      const lineDelta = (dy / range) * buf.baseY
+      session.term.scrollToLine(Math.round(startLine + lineDelta))
     }
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
-      document.body.style.userSelect = ''
+      window.removeEventListener('blur', onUp)
+      document.body.style.userSelect = previousUserSelect
+      this.stopDrag = null
     }
+    const previousUserSelect = document.body.style.userSelect
+    this.stopDrag = onUp
     document.body.style.userSelect = 'none'
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
+    window.addEventListener('blur', onUp)
   }
 
   private jumpToTrackY(clientY: number) {
     if (!this.current) return
+    this.update()
     const rect = this.track.getBoundingClientRect()
     const buf = this.current.term.buffer.active
-    const maxLine = Math.max(1, buf.length - this.current.term.rows)
+    const maxLine = buf.baseY
     const span = Math.max(1, rect.height - this.thumb.clientHeight)
     const ratio = (clientY - rect.top - this.thumb.clientHeight / 2) / span
     this.current.term.scrollToLine(Math.round(Math.min(1, Math.max(0, ratio)) * maxLine))

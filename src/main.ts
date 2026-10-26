@@ -4,12 +4,19 @@ import { TitleBar } from './ui/TitleBar'
 import { TabBar } from './ui/TabBar'
 import { StatusBar } from './ui/StatusBar'
 import { SettingsPanel } from './ui/SettingsPanel'
+import { ShortcutPanel } from './ui/ShortcutPanel'
+import { shortcutLabel } from './shortcuts/bindings'
 import { FindBox } from './ui/FindBox'
 import { WorkspaceBar } from './ui/WorkspaceBar'
+import { PackBar } from './ui/PackBar'
+import { launchPack } from './presets/launch'
+import { BUILTIN_PACKS } from './presets/builtin'
 import { attachContextMenu } from './ui/ContextMenu'
 import { ScrollBar } from './ui/ScrollBar'
 import { themeManager } from './core/ThemeManager'
 import { bus } from './core/EventBus'
+import { shortcuts } from './shortcuts'
+import { registerAppShortcuts } from './shortcuts/registerAppShortcuts'
 
 function shellName(full: string): string {
   return full.split(/[\\/]/).pop() ?? full
@@ -21,18 +28,30 @@ async function main() {
 
     const host = document.getElementById('terminal-host')!
     const controller = new TerminalController(host)
+    let shellPath = ''
+    let workspaceCwd = localStorage.getItem('spark.cwd') || ''
+    const detachShortcuts = shortcuts.attach(window)
+    const unregisterShortcuts = registerAppShortcuts(controller, () => {
+      void controller.create(shellPath, workspaceCwd || undefined)
+    })
+    window.addEventListener('unload', () => { unregisterShortcuts(); detachShortcuts() }, { once: true })
 
     new TitleBar()
     const findBox = new FindBox()
     const statusBar = new StatusBar()
+    const shortcutPanel = new ShortcutPanel()
+    const shortcutButton = document.getElementById('btn-shortcuts')!
+    shortcutButton.title = `快捷键 (${shortcutLabel('shortcuts.toggle')})`
+    shortcutButton.onclick = () => shortcutPanel.toggle()
+    window.addEventListener('unload', () => shortcutPanel.dispose(), { once: true })
 
     // 工作区：顶部栏选择/输入下次新标签的启动目录
-    let workspaceCwd = localStorage.getItem('spark.cwd') || ''
     new WorkspaceBar((cwd) => { workspaceCwd = cwd })
 
     const settings = new SettingsPanel({
       getFontSize: () => controller.active()?.getFontSize() ?? 13,
-      setFontSize: (n) => controller.active()?.setFontSize(n)
+      setFontSize: (n) => controller.active()?.setFontSize(n),
+      onOpenShortcuts: () => shortcutPanel.toggle()
     })
     statusBar.bind(() => settings.toggle(document.getElementById('btn-settings')!))
 
@@ -62,7 +81,6 @@ async function main() {
     attachContextMenu(host, () => controller.active(), () => void controller.create(shellPath, workspaceCwd || undefined))
 
     // shell 候选：新 API 返回数组（带白名单），旧 preload 兼容单值
-    let shellPath = ''
     if (typeof window.spark.detectShells === 'function') {
       const candidates = await window.spark.detectShells()
       shellPath = candidates[0] ?? ''
@@ -71,10 +89,23 @@ async function main() {
       shellPath = legacy?.trim().split(/\r?\n/)[0] ?? ''
     }
 
+    // 内容包：新建终端，等待输入就绪后自动启动、注入并发送。
+    new PackBar((pack) => void launchPack(controller, shellPath, pack))
+
     // 热重载恢复：优先接管主管里还活着的 pty 会话
     const restored = await controller.restore()
 
-    if (!restored) await controller.create(shellPath, workspaceCwd || undefined)
+    // 启动时是否被 bat/快捷方式指定了「自动进某个内容包」
+    const autoPackId = (await window.spark.getAutoPack?.()) || ''
+    const autoPack = BUILTIN_PACKS.find((p) => p.id === autoPackId)
+
+    if (autoPack) {
+      // 双击快捷方式直达：不开默认空标签，直接建包对应的会话
+      console.log(`[boot] 自动启动内容包：${autoPack.id}`)
+      void launchPack(controller, shellPath, autoPack)
+    } else if (!restored) {
+      await controller.create(shellPath, workspaceCwd || undefined)
+    }
 
     // 首个会话在 bus 监听注册前就绪时，显式补绑 find 目标
     const first = controller.active()
@@ -89,56 +120,15 @@ async function main() {
     const ro = new ResizeObserver(() => controller.active()?.fit.fit())
     ro.observe(host)
 
-    window.addEventListener('keydown', (e) => {
-      // F2 重命名当前标签（不占 Ctrl 组合，符合 VSCode / 资源管理器习惯）
-      if (e.code === 'F2' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-        const id = controller.active()?.ptyId
-        if (id) { e.preventDefault(); bus.emit('tab:rename-request', { id }) }
-        return
-      }
-      const mod = e.ctrlKey || e.metaKey
-      if (!mod) return
-      if (e.shiftKey && e.code === 'KeyT') { e.preventDefault(); void controller.create(shellPath, workspaceCwd || undefined); return }
-      if (e.shiftKey && e.code === 'KeyW') { e.preventDefault(); const id = controller.active()?.ptyId; if (id) controller.close(id); return }
-      if (e.code === 'KeyF' && !e.shiftKey && !e.altKey) {
-        // 无条件弹出查找框（无论焦点是否在终端）
-        e.preventDefault()
-        bus.emit('search:toggle', {})
-        return
-      }
-      if (e.code === 'Tab') {
-        e.preventDefault()
-        const all = controller.all()
-        if (all.length < 2) return
-        const idx = all.findIndex((s) => s.ptyId === controller.active()?.ptyId)
-        const next = e.shiftKey ? (idx - 1 + all.length) % all.length : (idx + 1) % all.length
-        controller.activate(all[next].ptyId)
-        return
-      }
-      // Ctrl+1..9 切到第 N 个标签（Ctrl+9 恒为最后一个，VSCode 风）
-      if (/^Digit[1-9]$/.test(e.code) && !e.shiftKey && !e.altKey) {
-        e.preventDefault()
-        const all = controller.all()
-        if (all.length < 1) return
-        const n = Number(e.code.slice(5))
-        controller.activate(all[n === 9 ? all.length - 1 : n - 1].ptyId)
-        return
-      }
-      const s = controller.active()
-      if (!s) return
-      if (e.code === 'Equal' || e.code === 'NumpadAdd') { e.preventDefault(); s.setZoom(s.getZoom() + 0.1) }
-      else if (e.code === 'Minus' || e.code === 'NumpadSubtract') { e.preventDefault(); s.setZoom(s.getZoom() - 0.1) }
-      else if (e.code === 'Digit0' || e.code === 'Numpad0') { e.preventDefault(); s.setZoom(1) }
-    })
-
     host.addEventListener('wheel', (e) => {
-      if (!e.ctrlKey) return
+      if (!e.ctrlKey || e.deltaY === 0) return
       e.preventDefault()
+      e.stopPropagation()
       const s = controller.active()
       if (!s) return
       const delta = e.deltaY < 0 ? 0.1 : -0.1
       s.setZoom(s.getZoom() + delta)
-    }, { passive: false })
+    }, { passive: false, capture: true })
 
     // 拖文件进终端 → 粘贴带引号的路径（含空格也安全），并聚焦终端
     host.addEventListener('dragover', (e) => { e.preventDefault() })

@@ -18,6 +18,9 @@ const api = {
   // 弹出系统目录选择框，返回选中路径（取消返回 null）
   pickFolder: () => ipcRenderer.invoke('dialog:pick-folder') as Promise<string | null>,
 
+  // 启动时是否要自动触发某个内容包 id（由 bat 脚本通过 SPARK_AUTO_PACK 注入）
+  getAutoPack: () => ipcRenderer.invoke('app:get-auto-pack') as Promise<string>,
+
   /**
    * 取拖入文件的真实路径。
    * Electron 新版本已移除非标准的 File.path，必须走 webUtils（只能在渲染进程侧调用）。

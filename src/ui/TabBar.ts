@@ -1,5 +1,7 @@
 import { bus } from '../core/EventBus'
 import { showMenu, type MenuEntry } from './ContextMenu'
+import { registerInputShortcut } from '../shortcuts'
+import { shortcutLabel } from '../shortcuts/bindings'
 
 interface Tab {
   id: string
@@ -50,6 +52,7 @@ export class TabBar {
   private renderScheduled = false
   /** 正在内联编辑的标签 id；非空时暂停整栏重绘，否则输入框会被 innerHTML 冲掉 */
   private editingId = ''
+  private renameShortcuts: (() => void)[] = []
   /** 正在启动的会话数：先显示占位标签，pty 起来后再换成真标签 */
   private pending = 0
   /** 上一次按下的标签与时刻：用于自己判定双击（原生 dblclick 会被重绘打断） */
@@ -65,7 +68,9 @@ export class TabBar {
     this.onCloseTab = opts.onCloseTab
     this.onNewTab = opts.onNewTab
 
-    document.getElementById('btn-new-tab')!.onclick = () => this.onNewTab()
+    const newTab = document.getElementById('btn-new-tab')!
+    newTab.onclick = () => this.onNewTab()
+    newTab.title = `新建标签 (${shortcutLabel('tab.new')})`
 
     // 空状态（无标签时显示引导）
     this.emptyEl = document.createElement('div')
@@ -74,7 +79,7 @@ export class TabBar {
       <div>
         <div style="font-size:32px; margin-bottom:8px;">⚡</div>
         <div>没有打开的终端</div>
-        <div style="margin-top:6px;">按 <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>T</kbd> 或点右上角 <kbd>+</kbd> 新建</div>
+        <div style="margin-top:6px;">按 <kbd>${shortcutLabel('tab.new')}</kbd> 或点右上角 <kbd>+</kbd> 新建</div>
       </div>
     `
     document.getElementById('terminal-host')!.appendChild(this.emptyEl)
@@ -149,7 +154,7 @@ export class TabBar {
       tab.className = 'tab' + (t.id === this.activeId ? ' active' : '') + (t.dead ? ' dead' : '')
       tab.draggable = true
       tab.dataset.id = t.id
-      tab.title = `${display}\n双击标题或 F2 重命名`
+      tab.title = `${display}\n双击标题或 ${shortcutLabel('tab.rename')} 重命名`
 
       const titleEl = document.createElement('span')
       titleEl.className = 'tab-title' + (t.custom ? ' renamed' : '')
@@ -194,7 +199,7 @@ export class TabBar {
         e.preventDefault()
         e.stopPropagation()
         const entries: MenuEntry[] = [
-          { label: '重命名标签', shortcut: 'F2', action: () => this.beginRename(t.id) }
+          { label: '重命名标签', shortcut: shortcutLabel('tab.rename'), action: () => this.beginRename(t.id) }
         ]
         if (t.custom) {
           entries.push({
@@ -208,7 +213,7 @@ export class TabBar {
         }
         entries.push('separator', {
           label: '关闭标签',
-          shortcut: 'Ctrl+Shift+W',
+          shortcut: shortcutLabel('tab.close'),
           action: () => this.onCloseTab(t.id)
         })
         showMenu(entries, e.clientX, e.clientY)
@@ -284,11 +289,10 @@ export class TabBar {
     for (const type of ['mousedown', 'click', 'dblclick', 'dragstart'] as const) {
       input.addEventListener(type, (e) => e.stopPropagation())
     }
-    input.addEventListener('keydown', (e) => {
-      e.stopPropagation()
-      if (e.key === 'Enter') { e.preventDefault(); this.finishRename(id, true) }
-      else if (e.key === 'Escape') { e.preventDefault(); this.finishRename(id, false) }
-    })
+    this.renameShortcuts = [
+      registerInputShortcut('rename.confirm', input, () => this.finishRename(id, true)),
+      registerInputShortcut('rename.cancel', input, () => this.finishRename(id, false))
+    ]
     input.addEventListener('blur', () => this.finishRename(id, true))
 
     input.focus()
@@ -297,6 +301,8 @@ export class TabBar {
 
   private finishRename(id: string, commit: boolean) {
     if (this.editingId !== id) return // blur 与 Enter 双触发去重
+    this.renameShortcuts.forEach((dispose) => dispose())
+    this.renameShortcuts = []
     const t = this.tabs.find((x) => x.id === id)
     const input = this.el.querySelector<HTMLInputElement>('.tab-rename')
     const raw = input?.value ?? ''

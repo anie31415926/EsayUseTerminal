@@ -3,4 +3,7 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
 Set WshShell = CreateObject("WScript.Shell")
 WshShell.CurrentDirectory = scriptDir
-WshShell.Run "cmd /c npm run dev", 0, False
+result = WshShell.Run("node """ & scriptDir & "\scripts\launch.mjs"" --silent", 0, True)
+If result <> 0 Then
+  MsgBox "Spark Terminal could not start. See launch-error.log in the application folder.", 16, "Spark Terminal"
+End If

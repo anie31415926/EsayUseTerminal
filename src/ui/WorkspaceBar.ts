@@ -1,3 +1,5 @@
+import { registerInputShortcut } from '../shortcuts'
+
 /**
  * 工作区栏：顶部一条窄栏，显示/编辑下次新标签的启动目录。
  * - 回车或点 ✓ 保存（写 localStorage）
@@ -22,9 +24,7 @@ export class WorkspaceBar {
       if (picked) this.set(picked)
     })
     bar.querySelector('[data-act="go"]')!.addEventListener('click', () => this.commit())
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') { e.preventDefault(); this.commit() }
-    })
+    registerInputShortcut('workspace.save', this.input, () => this.commit())
   }
 
   private display(): string {

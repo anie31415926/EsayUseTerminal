@@ -215,6 +215,22 @@ body {
   border-radius: 5px; cursor: pointer; font-size: 13px;
 }
 #workspace-bar button:hover { background: var(--bg-hover); color: var(--accent); }
+#workspace-bar .ws-sep {
+  width: 1px; align-self: stretch;
+  background: var(--border); margin: 0 4px;
+}
+#workspace-bar select {
+  -webkit-app-region: no-drag;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 12px;
+  padding: 3px 6px;
+  outline: none;
+  max-width: 220px;
+}
+#workspace-bar select:focus { border-color: var(--accent); }
 
 /* ---------- Terminal host ---------- */
 #terminal-host {
@@ -225,10 +241,53 @@ body {
 }
 .session-host {
   position: absolute;
-  inset: 0;
-  padding: 6px 8px;
+  inset: 6px 16px 6px 8px;
 }
 .session-host .xterm { height: 100%; }
+.session-host .xterm:not(.xterm-cursor-pointer):not(.column-select) { cursor: default; }
+.session-host .xterm.xterm-cursor-pointer,
+.session-host .xterm .xterm-cursor-pointer { cursor: pointer; }
+
+.input-editor {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 8px;
+  padding: 8px 16px 8px 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elev);
+}
+.input-editor[hidden] { display: none; }
+.input-editor-text {
+  width: 100%;
+  min-width: 0;
+  height: 76px;
+  resize: vertical;
+  min-height: 52px;
+  max-height: min(240px, 35vh);
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: 13px/1.5 Consolas, "Microsoft YaHei", monospace;
+  outline: none;
+}
+.input-editor-text:focus { border-color: var(--accent); }
+.input-editor-actions { display: flex; flex-direction: column; gap: 6px; }
+.input-editor-actions button {
+  min-height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+}
+.input-editor-actions button:hover { background: var(--bg-hover); }
+.input-editor-actions .input-editor-send { border-color: var(--accent); }
+.input-editor-actions button:disabled { opacity: 0.5; cursor: default; }
+.input-editor-error { grid-column: 1 / -1; color: var(--danger); }
 
 /* 美化 xterm 自带滚动条 —— 现在用自定义滚动条，把原生的藏掉 */
 .xterm-viewport::-webkit-scrollbar { width: 0; display: none; }
@@ -246,7 +305,6 @@ body {
 .scrollbar-thumb {
   position: absolute;
   left: 2px; right: 2px;
-  min-height: 24px;
   background: rgba(163, 230, 53, 0.4);
   border-radius: 6px;
   transition: background 0.15s;
@@ -410,4 +468,71 @@ body {
   font-size: 13px; line-height: 1;
 }
 .status-gear:hover { background: var(--bg-hover); color: var(--accent); }
+
+.status-shortcuts,
+.settings-shortcuts {
+  border: 0;
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.status-shortcuts { height: 22px; padding: 0 6px; }
+.settings-shortcuts { width: 100%; padding: 8px 0 2px; text-align: left; }
+.status-shortcuts:hover,
+.settings-shortcuts:hover { color: var(--accent); background: var(--bg-hover); }
+
+.shortcut-panel {
+  width: min(860px, calc(100vw - 32px));
+  height: min(660px, calc(100vh - 40px));
+  max-height: calc(100vh - 40px);
+  margin: auto;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--fg);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.shortcut-panel[open] { display: flex; flex-direction: column; gap: 12px; }
+.shortcut-panel::backdrop { background: rgba(0,0,0,0.55); }
+.shortcut-panel > header { display: flex; align-items: center; justify-content: space-between; flex: none; }
+.shortcut-panel h2 { font-size: 16px; font-weight: 600; }
+.shortcut-panel-close {
+  width: 28px; height: 28px;
+  border: 0; border-radius: 4px;
+  background: transparent; color: var(--fg-dim);
+  font-size: 22px; cursor: pointer;
+}
+.shortcut-panel-close:hover { background: var(--bg-hover); color: var(--fg); }
+.shortcut-panel-filter {
+  width: 100%; min-height: 32px; flex: none;
+  padding: 6px 8px;
+  border: 1px solid var(--border); border-radius: 4px;
+  background: var(--bg); color: var(--fg); font: inherit;
+}
+.shortcut-panel-filter:focus-visible { outline: 1px solid var(--accent); }
+.shortcut-panel-scroll {
+  overflow: auto; min-height: 0; flex: 1;
+  scrollbar-width: thin;
+  scrollbar-color: var(--fg-dim) var(--bg);
+}
+.shortcut-panel table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.shortcut-panel th,
+.shortcut-panel td { padding: 9px 8px; text-align: left; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.shortcut-panel thead { position: sticky; top: 0; background: var(--bg-elev); }
+.shortcut-panel thead th { color: var(--fg-dim); font-weight: 500; }
+.shortcut-panel th:nth-child(1) { width: 31%; }
+.shortcut-panel th:nth-child(2) { width: 43%; }
+.shortcut-panel th:nth-child(3) { width: 26%; }
+.shortcut-panel-group th { padding-top: 16px; color: var(--accent); font-weight: 500; }
+.shortcut-panel td:last-child { color: var(--fg-dim); }
+.shortcut-panel-keys { display: flex; flex-wrap: wrap; gap: 5px; }
+.shortcut-panel kbd {
+  display: inline-block; padding: 2px 5px;
+  border: 1px solid var(--border); border-radius: 3px;
+  background: var(--bg); color: var(--fg); font: 11px/1.5 Consolas, monospace;
+}
+.shortcut-panel-empty { padding: 24px 8px; color: var(--fg-dim); text-align: center; }
 

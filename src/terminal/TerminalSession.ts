@@ -6,6 +6,8 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 import { themeManager } from '../core/ThemeManager'
 import { bus } from '../core/EventBus'
+import { shortcuts } from '../shortcuts'
+import { SessionInput } from './SessionInput'
 
 export interface SessionOptions {
   shellPath?: string
@@ -47,6 +49,7 @@ export class TerminalSession {
   private zoomFactor: number
   private exited = false
   private webgl: WebglAddon | null = null
+  private input: SessionInput
 
   constructor(opts: SessionOptions = {}) {
     this.baseFontSize = loadNum(FONT_KEY, 13, FONT_MIN, FONT_MAX)
@@ -80,6 +83,7 @@ export class TerminalSession {
     this.host = document.createElement('div')
     this.host.className = 'session-host'
     this.host.style.display = 'none'
+    this.input = new SessionInput(this.term, (data) => this.writeInput(data), () => !!this.ptyId && !this.exited)
 
     // 用户在终端里的输入 -> 写到 pty
     this.term.onData((data) => {
@@ -102,65 +106,13 @@ export class TerminalSession {
       this.term.options.theme = themeManager.xtermTheme()
     })
 
-    // 快捷键：Ctrl+Shift+C/V 保留为备用；主用 Ctrl+C/V（Windows Terminal 语义：有选中才复制，否则送 ETX 中断）
-    this.term.attachCustomKeyEventHandler((ev) => {
-      if (ev.type !== 'keydown') return true
-      const mod = ev.ctrlKey
-      const shift = ev.shiftKey
-      const code = ev.code
-
-      // F2 重命名标签：这里必须处理。终端聚焦时 xterm 会把 F2 当功能键吞掉
-      // （转成 \x1bOQ 发给 shell），窗口级 keydown 根本收不到，重命名就成了摆设。
-      // stopPropagation 是为了别让 window 上那份再触发一次。
-      if (code === 'F2' && !mod && !shift && !ev.altKey) {
-        ev.preventDefault()
-        ev.stopPropagation()
-        bus.emit('tab:rename-request', {})
-        return false
-      }
-
-      // Ctrl+Shift+C / Ctrl+Shift+V 备用
-      if (mod && shift && code === 'KeyC') {
-        const sel = this.term.getSelection()
-        if (sel) void this.copyToClipboard(sel)
-        return false
-      }
-      if (mod && shift && code === 'KeyV') {
-        void this.pasteFromClipboard()
-        return false
-      }
-
-      // Ctrl+C：有选中就复制；没选中就把 ETX 送给 shell，保证还能中断正在跑的命令
-      // （Windows Terminal 同款语义。以前无条件吞掉，导致 Ctrl+C 根本杀不掉命令）
-      if (mod && !shift && code === 'KeyC') {
-        const sel = this.term.getSelection()
-        if (sel) {
-          void this.copyToClipboard(sel)
-        } else if (this.ptyId && !this.exited) {
-          window.spark.write(this.ptyId, '\x03')
-        }
-        return false
-      }
-      // Ctrl+V：粘贴
-      if (mod && !shift && code === 'KeyV') {
-        void this.pasteFromClipboard()
-        return false
-      }
-
-      if (mod && !shift && code === 'KeyL') {
-        this.term.clear()
-        return false
-      }
-      // Ctrl+F 由 main.ts 的窗口级 keydown 统一处理（焦点不在终端也能弹），
-      // 这里再 emit 一次会 toggle 两次 = 开了又关
-      return true
-    })
+    this.term.attachCustomKeyEventHandler((event) => !shortcuts.handle(event))
 
     this.shellPath = opts.shellPath ?? ''
   }
 
   /** 读剪贴板并粘贴：无权限/被拒时安静失败，不抛未处理 Promise */
-  private async pasteFromClipboard() {
+  async pasteFromClipboard() {
     try {
       const text = await navigator.clipboard.readText()
       if (text) this.term.paste(text)
@@ -170,6 +122,26 @@ export class TerminalSession {
   private async copyToClipboard(text: string) {
     try { await navigator.clipboard.writeText(text) } catch { /* 忽略 */ }
   }
+
+  copySelection() {
+    const selection = this.term.getSelection()
+    if (selection) void this.copyToClipboard(selection)
+  }
+
+  copyOrInterrupt() {
+    if (this.term.hasSelection()) this.copySelection()
+    else this.writeInput('\x03')
+  }
+
+  private writeInput(data: string) {
+    if (this.ptyId && !this.exited) window.spark.write(this.ptyId, data)
+  }
+
+  undoInput() { if (this.input.hasFocus()) this.input.undo(); else this.writeInput('\x1a') }
+  redoInput() { if (this.input.hasFocus()) this.input.redo(); else this.writeInput('\x19') }
+  hasInputFocus() { return this.hasFocus() || this.input.hasFocus() }
+  enableInputEditor() { this.input.enable(this.host.style.display !== 'none') }
+  toggleInputEditor() { this.input.toggle() }
 
   async start(cwd?: string) {
     const { id, shellPath } = await window.spark.spawn({
@@ -202,6 +174,7 @@ export class TerminalSession {
     })
     this.unsubscribeExit = window.spark.onExit(id, () => {
       this.exited = true
+      this.input.dispose()
       this.term.write('\r\n\x1b[90m[进程已退出，标签可关闭]\x1b[0m\r\n')
       bus.emit('session:exited', { id })
     })
@@ -212,10 +185,10 @@ export class TerminalSession {
     this.fit.fit()
   }
 
-  show() { this.host.style.display = 'block'; requestAnimationFrame(() => this.fit.fit()) }
-  hide() { this.host.style.display = 'none' }
+  show() { this.host.style.display = 'block'; this.input.show(true); requestAnimationFrame(() => this.fit.fit()) }
+  hide() { this.host.style.display = 'none'; this.input.show(false) }
 
-  focus() { this.term.focus() }
+  focus() { if (!this.input.focus()) this.term.focus() }
   hasFocus() { return document.activeElement === this.term.textarea }
 
   isExited() { return this.exited }
@@ -243,6 +216,7 @@ export class TerminalSession {
     this.unsubscribeData?.()
     this.unsubscribeExit?.()
     this.offTheme?.()
+    this.input.dispose()
     // 已经退出的会话不能再 kill：ConPTY 会对已消失的控制台 fork 枚举进程的 agent，
     // 子进程里 AttachConsole 失败会往日志里扔一坨栈（功能无影响，纯噪音）
     if (this.ptyId && !this.exited) window.spark.kill(this.ptyId)

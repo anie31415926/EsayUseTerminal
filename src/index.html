@@ -15,7 +15,7 @@
       <div class="drag-region">
         <span class="logo">⚡ Spark</span>
         <nav id="tabbar" class="drag-region"></nav>
-        <button id="btn-new-tab" class="ghost-btn" title="新建标签 (Ctrl+Shift+T)">+</button>
+        <button id="btn-new-tab" class="ghost-btn" title="新建标签">+</button>
       </div>
       <div class="window-controls no-drag">
         <button id="win-min" title="最小化">─</button>
@@ -29,6 +29,10 @@
       <input type="text" spellcheck="false" placeholder="输入路径或浏览选择…" />
       <button data-act="browse" title="选择文件夹">📁</button>
       <button data-act="go" title="应用此路径作为新标签启动目录">✓</button>
+      <span class="ws-sep"></span>
+      <span class="ws-label">内容包</span>
+      <select id="pack-select" title="选择一个注入内容包"></select>
+      <button id="pack-launch" title="启动并发送选中的内容包">🚀</button>
     </div>
 
     <main id="terminal-host"></main>
@@ -38,6 +42,7 @@
       <span class="spacer"></span>
       <span id="status-dim">0 x 0</span>
       <span id="status-zoom">100%</span>
+      <button id="btn-shortcuts" class="status-shortcuts" title="快捷键">快捷键</button>
       <button id="btn-settings" class="status-gear" title="设置（字号 / 主题）">⚙</button>
     </footer>
   </div>

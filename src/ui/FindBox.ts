@@ -1,5 +1,7 @@
 import type { TerminalSession } from '../terminal/TerminalSession'
 import { bus } from '../core/EventBus'
+import { registerInputShortcut } from '../shortcuts'
+import { shortcutLabel } from '../shortcuts/bindings'
 
 /**
  * 查找框（Ctrl+F / 右键菜单"查找"）：
@@ -18,23 +20,17 @@ export class FindBox {
     this.el.style.display = 'none'
     this.el.innerHTML = `
       <input class="findbar-input" placeholder="查找…" spellcheck="false" />
-      <button class="findbar-btn" data-act="prev" title="上一个 (Shift+Enter)">↑</button>
-      <button class="findbar-btn" data-act="next" title="下一个 (Enter)">↓</button>
-      <button class="findbar-btn" data-act="close" title="关闭 (Esc)">✕</button>
+      <button class="findbar-btn" data-act="prev" title="上一个 (${shortcutLabel('search.previous')})">↑</button>
+      <button class="findbar-btn" data-act="next" title="下一个 (${shortcutLabel('search.next')})">↓</button>
+      <button class="findbar-btn" data-act="close" title="关闭 (${shortcutLabel('search.close')})">✕</button>
     `
     document.body.appendChild(this.el)
     this.input = this.el.querySelector('.findbar-input')!
 
     this.input.addEventListener('input', () => this.find(this.input.value, 'next'))
-    this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault()
-        this.find(this.input.value, e.shiftKey ? 'prev' : 'next')
-      } else if (e.key === 'Escape') {
-        e.preventDefault()
-        this.close()
-      }
-    })
+    registerInputShortcut('search.next', this.input, () => this.find(this.input.value, 'next'))
+    registerInputShortcut('search.previous', this.input, () => this.find(this.input.value, 'prev'))
+    registerInputShortcut('search.close', this.input, () => this.close())
 
     this.el.addEventListener('click', (ev) => {
       const act = (ev.target as HTMLElement).closest('button')?.dataset.act

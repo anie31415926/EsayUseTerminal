@@ -5,6 +5,7 @@ import { FONT_MIN, FONT_MAX } from '../terminal/TerminalSession'
 export interface SettingsAccess {
   getFontSize: () => number
   setFontSize: (size: number) => void
+  onOpenShortcuts?: () => void
 }
 
 /**
@@ -71,6 +72,13 @@ export class SettingsPanel {
     this.el.appendChild(fontRow)
     this.el.appendChild(themeRow)
     this.el.appendChild(hint)
+    if (access.onOpenShortcuts) {
+      const shortcuts = document.createElement('button')
+      shortcuts.className = 'settings-shortcuts'
+      shortcuts.textContent = '查看全部快捷键'
+      shortcuts.addEventListener('click', () => { this.close(); access.onOpenShortcuts?.() })
+      this.el.appendChild(shortcuts)
+    }
 
     // 点面板外关闭
     document.addEventListener('mousedown', (e) => {

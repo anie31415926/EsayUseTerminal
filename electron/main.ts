@@ -34,6 +34,8 @@ function registerWindowIpc() {
     const r = win ? await dialog.showOpenDialog(win, opts) : await dialog.showOpenDialog(opts)
     return r.canceled ? null : r.filePaths[0]
   })
+  // 启动参数：双击快捷方式想直接进某个内容包时用（bat 里 set SPARK_AUTO_PACK=<id>）
+  ipcMain.handle('app:get-auto-pack', () => process.env['SPARK_AUTO_PACK'] || '')
 }
 
 // 单实例锁：避免多开（SPARK_ALLOW_MULTI=1 时放行，供测试/调试）

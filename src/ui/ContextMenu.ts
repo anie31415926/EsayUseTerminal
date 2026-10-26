@@ -1,5 +1,7 @@
 import type { TerminalSession } from '../terminal/TerminalSession'
 import { bus } from '../core/EventBus'
+import { registerShortcut } from '../shortcuts'
+import { shortcutLabel } from '../shortcuts/bindings'
 
 export interface MenuItem {
   label: string
@@ -8,13 +10,14 @@ export interface MenuItem {
   disabled?: boolean
 }
 export type MenuEntry = MenuItem | 'separator'
+let closePreviousMenu: (() => void) | undefined
 
 /**
  * 通用浮层菜单：靠视口边缘自动夹取，点外部 / Esc / 窗口缩放即关闭。
  * 终端右键菜单与标签右键菜单共用同一套样式与关闭逻辑，避免两份实现漂移。
  */
 export function showMenu(entries: MenuEntry[], x: number, y: number) {
-  document.querySelectorAll('.context-menu').forEach((el) => el.remove())
+  closePreviousMenu?.()
 
   const menu = document.createElement('div')
   menu.className = 'context-menu'
@@ -58,19 +61,18 @@ export function showMenu(entries: MenuEntry[], x: number, y: number) {
 
   function close() {
     menu.remove()
+    unregisterClose()
+    if (closePreviousMenu === close) closePreviousMenu = undefined
     document.removeEventListener('mousedown', onDoc, true)
-    document.removeEventListener('keydown', onKey, true)
     window.removeEventListener('resize', close)
     window.removeEventListener('blur', close)
   }
   function onDoc(ev: MouseEvent) {
     if (!menu.contains(ev.target as Node)) close()
   }
-  function onKey(ev: KeyboardEvent) {
-    if (ev.key === 'Escape') { ev.stopPropagation(); close() }
-  }
-  setTimeout(() => document.addEventListener('mousedown', onDoc, true), 0)
-  document.addEventListener('keydown', onKey, true)
+  const unregisterClose = registerShortcut('menu.close', { run: close, allowInEditable: true, priority: 100 })
+  closePreviousMenu = close
+  document.addEventListener('mousedown', onDoc, true)
   window.addEventListener('resize', close)
   window.addEventListener('blur', close)
 
@@ -94,7 +96,7 @@ export function attachContextMenu(
     showMenu([
       {
         label: '复制',
-        shortcut: 'Ctrl+Shift+C',
+        shortcut: shortcutLabel('terminal.copy'),
         disabled: !selection,
         action: () => {
           if (!selection) return
@@ -103,7 +105,7 @@ export function attachContextMenu(
       },
       {
         label: '粘贴',
-        shortcut: 'Ctrl+Shift+V',
+        shortcut: shortcutLabel('terminal.paste'),
         action: async () => {
           try {
             const text = await navigator.clipboard.readText()
@@ -113,13 +115,13 @@ export function attachContextMenu(
       },
       {
         label: '查找',
-        shortcut: 'Ctrl+F',
+        shortcut: shortcutLabel('search.toggle'),
         action: () => bus.emit('search:toggle', { needle: session.term.getSelection() })
       },
       'separator',
-      { label: '清屏', shortcut: 'Ctrl+L', action: () => session.term.clear() },
+      { label: '清屏', shortcut: shortcutLabel('terminal.clear'), action: () => session.term.clear() },
       'separator',
-      { label: '新建标签', shortcut: 'Ctrl+Shift+T', action: onNewTab }
+      { label: '新建标签', shortcut: shortcutLabel('tab.new'), action: onNewTab }
     ], e.clientX, e.clientY)
   })
 }
