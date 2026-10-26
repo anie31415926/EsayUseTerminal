@@ -8,6 +8,7 @@ import { ShortcutPanel } from './ui/ShortcutPanel'
 import { shortcutLabel } from './shortcuts/bindings'
 import { FindBox } from './ui/FindBox'
 import { WorkspaceBar } from './ui/WorkspaceBar'
+import { WorkspaceManager } from './core/WorkspaceManager'
 import { PackBar } from './ui/PackBar'
 import { launchPack } from './presets/launch'
 import { BUILTIN_PACKS } from './presets/builtin'
@@ -29,10 +30,10 @@ async function main() {
     const host = document.getElementById('terminal-host')!
     const controller = new TerminalController(host)
     let shellPath = ''
-    let workspaceCwd = localStorage.getItem('spark.cwd') || ''
+    const workspace = new WorkspaceManager((cwd) => controller.create(shellPath, cwd))
     const detachShortcuts = shortcuts.attach(window)
     const unregisterShortcuts = registerAppShortcuts(controller, () => {
-      void controller.create(shellPath, workspaceCwd || undefined)
+      void controller.create(shellPath, workspace.current || undefined)
     })
     window.addEventListener('unload', () => { unregisterShortcuts(); detachShortcuts() }, { once: true })
 
@@ -45,8 +46,9 @@ async function main() {
     shortcutButton.onclick = () => shortcutPanel.toggle()
     window.addEventListener('unload', () => shortcutPanel.dispose(), { once: true })
 
-    // 工作区：顶部栏选择/输入下次新标签的启动目录
-    new WorkspaceBar((cwd) => { workspaceCwd = cwd })
+    const workspaceBar = new WorkspaceBar((cwd) => workspace.apply(cwd), workspace.current)
+    try { await workspace.initialize() }
+    catch (error) { workspaceBar.showError(error) }
 
     const settings = new SettingsPanel({
       getFontSize: () => controller.active()?.getFontSize() ?? 13,
@@ -58,7 +60,7 @@ async function main() {
     new TabBar({
       onClickTab: (id) => controller.activate(id),
       onCloseTab: (id) => controller.close(id),
-      onNewTab: () => void controller.create(shellOf(controller), workspaceCwd || undefined)
+      onNewTab: () => void controller.create(shellOf(controller), workspace.current || undefined)
     })
 
     // 会话切换：滚动条重绑 + 状态栏缩放显示同步
@@ -78,7 +80,7 @@ async function main() {
     bus.on('tabs:reorder', ({ ids }) => controller.reorder(ids))
 
     // 终端右键菜单
-    attachContextMenu(host, () => controller.active(), () => void controller.create(shellPath, workspaceCwd || undefined))
+    attachContextMenu(host, () => controller.active(), () => void controller.create(shellPath, workspace.current || undefined))
 
     // shell 候选：新 API 返回数组（带白名单），旧 preload 兼容单值
     if (typeof window.spark.detectShells === 'function') {
@@ -90,7 +92,7 @@ async function main() {
     }
 
     // 内容包：新建终端，等待输入就绪后自动启动、注入并发送。
-    new PackBar((pack) => void launchPack(controller, shellPath, pack))
+    new PackBar((pack) => void launchPack(controller, shellPath, pack, workspace.current))
 
     // 热重载恢复：优先接管主管里还活着的 pty 会话
     const restored = await controller.restore()
@@ -102,9 +104,9 @@ async function main() {
     if (autoPack) {
       // 双击快捷方式直达：不开默认空标签，直接建包对应的会话
       console.log(`[boot] 自动启动内容包：${autoPack.id}`)
-      void launchPack(controller, shellPath, autoPack)
+      void launchPack(controller, shellPath, autoPack, workspace.current)
     } else if (!restored) {
-      await controller.create(shellPath, workspaceCwd || undefined)
+      await controller.create(shellPath, workspace.current || undefined)
     }
 
     // 首个会话在 bus 监听注册前就绪时，显式补绑 find 目标

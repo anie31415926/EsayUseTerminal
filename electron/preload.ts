@@ -17,6 +17,7 @@ const api = {
 
   // 弹出系统目录选择框，返回选中路径（取消返回 null）
   pickFolder: () => ipcRenderer.invoke('dialog:pick-folder') as Promise<string | null>,
+  resolveCwd: (cwd: string) => ipcRenderer.invoke('workspace:resolve', cwd) as Promise<string>,
 
   // 启动时是否要自动触发某个内容包 id（由 bat 脚本通过 SPARK_AUTO_PACK 注入）
   getAutoPack: () => ipcRenderer.invoke('app:get-auto-pack') as Promise<string>,

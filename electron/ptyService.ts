@@ -164,9 +164,18 @@ function defaultCwd(): string {
 }
 
 /** 校验目录（不只是「存在」：路径可能是个文件，或者是空串） */
-function isDirectory(p: string): boolean {
-  if (!p) return false
-  try { return fs.statSync(p).isDirectory() } catch { return false }
+function resolveCwd(value = ''): string {
+  let requested = value.trim()
+  if ((requested.startsWith('"') && requested.endsWith('"')) ||
+      (requested.startsWith("'") && requested.endsWith("'"))) requested = requested.slice(1, -1)
+  // Migrate the old display label, which used to be persisted as an actual path.
+  if (!requested || requested === '默认（用户主目录）') return defaultCwd()
+  if (!path.isAbsolute(requested)) throw new Error('工作区必须是绝对路径')
+  const cwd = path.normalize(requested)
+  try {
+    if (fs.statSync(cwd).isDirectory()) return cwd
+  } catch { /* Report invalid paths instead of silently starting in a different directory. */ }
+  throw new Error(`工作区目录不存在或不可访问：${cwd}`)
 }
 
 export function killAllSessions() {
@@ -197,19 +206,10 @@ export function registerPtyIpc() {
     const { path: shellPath, candidates } = await resolveShell(opts?.shell)
     if (!canSend(win)) throw new Error('窗口已关闭，已取消创建终端')
     const requestedCwd = opts?.cwd ?? ''
-    // 工作区路径可能已被删除、写成文件、或带引号，一律回退主目录
-    const cwd = isDirectory(requestedCwd) ? requestedCwd : defaultCwd()
+    const cwd = resolveCwd(requestedCwd)
     console.log(`[pty:spawn] shell=${shellPath} requestedCwd='${requestedCwd}' -> cwd='${cwd}'`)
 
-    let s: PtySession
-    try {
-      s = new PtySession(win, shellPath, cwd, opts?.cols ?? 80, opts?.rows ?? 24)
-    } catch (err) {
-      // 兜底：cwd / shell 任一不可用时，用主目录再试一次，实在不行才把错误抛给渲染进程
-      if (cwd === defaultCwd()) throw err
-      console.error(`[pty:spawn] 首次启动失败，回退主目录重试：`, err)
-      s = new PtySession(win, shellPath, defaultCwd(), opts?.cols ?? 80, opts?.rows ?? 24)
-    }
+    const s = new PtySession(win, shellPath, cwd, opts?.cols ?? 80, opts?.rows ?? 24)
     sessions.set(s.id, s)
     return { id: s.id, shellPath, candidates }
   })
@@ -226,4 +226,5 @@ export function registerPtyIpc() {
     [...sessions.values()].filter((s) => s.ownerId === e.sender.id).map((s) => ({ id: s.id, shellPath: s.shellPath }))
   )
   ipcMain.handle('shell:detect', () => getCachedCandidates())
+  ipcMain.handle('workspace:resolve', (_e, cwd: string) => resolveCwd(cwd))
 }

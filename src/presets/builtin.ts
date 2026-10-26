@@ -30,9 +30,9 @@ export const BUILTIN_PACKS: InjectionPack[] = [
   {
     id: 'codex-a1-full-access',
     name: 'Codex · A1 全权限',
-    description: '在 Project-A1 仓库里以 --dangerously-bypass-approvals-and-sandbox 起 codex，并发送仓记契约 prompt',
+    description: '在所选工作区启动 Codex 并发送仓记契约；未选择工作区时使用 Project-A1',
     cwd: A1_ROOT,
-    launchCommand: `codex --no-alt-screen --cd "${A1_ROOT}" --dangerously-bypass-approvals-and-sandbox`,
+    launchCommand: 'codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox',
     inputReadyPattern: '^\\s*›\\s*$',
     injectText: A1_PROMPT,
     autoSubmit: true,

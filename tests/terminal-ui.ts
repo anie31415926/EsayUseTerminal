@@ -120,10 +120,22 @@ async function runRegressionTests() {
 
   let spawnCount = 0
   let newWindowCount = 0
+  let pickedFolder: string | null = null
+  let failSpawn = false
+  const spawnOptions: { cwd?: string }[] = []
   const dataHandlers = new Map<string, (data: string) => void>()
   const writes: { id: string; text: string }[] = []
   Object.assign(window, { spark: {
-    spawn: async () => ({ id: `mock-${++spawnCount}`, shellPath: 'test.exe', candidates: ['test.exe'] }),
+    spawn: async (opts: { cwd?: string }) => {
+      if (failSpawn) throw new Error('spawn denied')
+      spawnOptions.push(opts)
+      return { id: `mock-${++spawnCount}`, shellPath: 'test.exe', candidates: ['test.exe'] }
+    },
+    pickFolder: async () => pickedFolder,
+    resolveCwd: async (cwd: string) => {
+      if (cwd === 'invalid') throw new Error("Error invoking remote method 'workspace:resolve': Error: 工作区目录不存在")
+      return cwd || 'C:\\Users\\Test'
+    },
     write: (id: string, text: string) => { writes.push({ id, text }) }, resize: () => {}, kill: () => {},
     detectShells: async () => ['test.exe'], listSessions: async () => [], getAutoPack: async () => '',
     onData: (id: string, callback: (data: string) => void) => { dataHandlers.set(id, callback); return () => dataHandlers.delete(id) },
@@ -438,6 +450,66 @@ async function runRegressionTests() {
       last.click()
       assert(Number(selected) === 79, 'last menu item could not be selected')
     } finally { close() }
+  })
+  await test('applying a workspace opens and activates a terminal there and preserves existing sessions', async () => {
+    const before = spawnCount
+    const existing = [...document.querySelectorAll<HTMLElement>('.tab')].map((tab) => tab.dataset.id)
+    const input = document.querySelector<HTMLInputElement>('#workspace-bar input')!
+    assert(input.value === '', 'default label was stored as an editable path')
+    input.value = "C:\\workspace 中文's folder"
+    document.querySelector<HTMLButtonElement>('[data-act="go"]')!.click()
+    document.querySelector<HTMLButtonElement>('[data-act="go"]')!.click()
+    await settle()
+    assert(spawnCount === before + 1, 'apply did not create exactly one terminal')
+    assert(spawnOptions.at(-1)?.cwd === input.value, 'actual terminal spawn ignored the selected workspace')
+    assert(document.querySelector<HTMLElement>('.tab.active')!.dataset.id === `mock-${spawnCount}`, 'new workspace terminal was not activated')
+    assert(existing.every((id) => !!document.querySelector(`.tab[data-id="${id}"]`)), 'workspace change closed an existing terminal')
+    assert(localStorage.getItem('spark.cwd') === input.value, 'workspace was not persisted after success')
+    document.getElementById('btn-new-tab')!.click()
+    await settle()
+    assert(spawnOptions.at(-1)?.cwd === input.value, 'later tabs did not inherit the workspace')
+  })
+  await test('invalid workspace reports an error without changing sessions or the saved directory', async () => {
+    const before = spawnCount
+    const saved = localStorage.getItem('spark.cwd')
+    const active = document.querySelector<HTMLElement>('.tab.active')!.dataset.id
+    const input = document.querySelector<HTMLInputElement>('#workspace-bar input')!
+    input.value = 'invalid'
+    input.focus()
+    input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true, cancelable: true }))
+    await settle()
+    assert(!document.getElementById('workspace-error')!.hidden && input.getAttribute('aria-invalid') === 'true', 'invalid path failed silently')
+    assert(document.getElementById('workspace-error')!.textContent === '工作区目录不存在', 'workspace error exposed IPC implementation details')
+    assert(spawnCount === before && document.querySelector<HTMLElement>('.tab.active')!.dataset.id === active, 'invalid path changed the terminal')
+    assert(localStorage.getItem('spark.cwd') === saved, 'invalid path replaced the saved workspace')
+  })
+  await test('folder selection applies immediately and cancellation has no effect', async () => {
+    const before = spawnCount
+    pickedFolder = 'C:\\picked folder'
+    document.querySelector<HTMLButtonElement>('[data-act="browse"]')!.click()
+    await settle()
+    assert(spawnCount === before + 1 && spawnOptions.at(-1)?.cwd === pickedFolder, 'selected folder was only displayed without opening a terminal')
+    assert(document.getElementById('workspace-error')!.hidden, 'successful retry retained stale error')
+    pickedFolder = null
+    document.querySelector<HTMLButtonElement>('[data-act="browse"]')!.click()
+    await settle()
+    assert(spawnCount === before + 1, 'cancelling folder selection created a terminal')
+  })
+  await test('workspace spawn failure preserves the saved directory and removes its loading tab', async () => {
+    const saved = localStorage.getItem('spark.cwd')
+    const count = document.querySelectorAll('.tab').length
+    const active = document.querySelector<HTMLElement>('.tab.active')!.dataset.id
+    const input = document.querySelector<HTMLInputElement>('#workspace-bar input')!
+    input.value = 'C:\\denied'
+    failSpawn = true
+    try {
+      document.querySelector<HTMLButtonElement>('[data-act="go"]')!.click()
+      await settle()
+      assert(localStorage.getItem('spark.cwd') === saved, 'failed spawn committed the workspace')
+      assert(document.querySelectorAll('.tab').length === count && !document.querySelector('.tab.loading'), 'failed spawn left a ghost tab')
+      assert(document.querySelector<HTMLElement>('.tab.active')!.dataset.id === active, 'failed spawn changed the active terminal')
+      assert(!document.getElementById('workspace-error')!.hidden && !input.disabled, 'failed spawn did not report or recover')
+    } finally { failSpawn = false }
   })
   return [...results, ...await runPackTests()]
 }

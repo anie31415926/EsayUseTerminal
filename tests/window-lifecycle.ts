@@ -1,5 +1,8 @@
 import { app, BrowserWindow } from 'electron'
 import assert from 'node:assert/strict'
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
 import { WindowManager } from '../electron/WindowManager'
 import { killAllSessions, registerPtyIpc } from '../electron/ptyService'
 
@@ -49,6 +52,25 @@ app.whenReady().then(async () => {
     await evaluate(second, `window.windowTestOutput = ''; window.spark.onData(${JSON.stringify(two.id)}, data => { window.windowTestOutput += data }); window.spark.write(${JSON.stringify(two.id)}, 'OWNER_INPUT')`)
     await waitFor(() => evaluate(second, "window.windowTestOutput.includes('OWNER_INPUT')"))
     console.log('PASS closing one window leaves another window terminal alive and accepting input')
+    const cwd = join(process.env.SPARK_TEST_DATA!, '..', "workspace 中文's folder")
+    mkdirSync(cwd, { recursive: true })
+    const quotedCwd = `"${cwd}"`
+    assert.equal(await evaluate(second, `window.spark.resolveCwd(${JSON.stringify(quotedCwd)})`), cwd)
+    assert.equal(await evaluate(second, "window.spark.resolveCwd('')"), homedir())
+    assert.equal(await evaluate(second, "window.spark.resolveCwd('默认（用户主目录）')"), homedir())
+    const shells = await evaluate<string[]>(second, 'window.spark.detectShells()')
+    const shell = shells.find((candidate) => /(?:pwsh|powershell)(?:\.exe)?$/i.test(candidate))!
+    assert.ok(shell, 'PowerShell is required for the native workspace test')
+    const workspace = await evaluate<{ id: string }>(second, `window.spark.spawn(${JSON.stringify({ shell, cwd: quotedCwd })})`)
+    await evaluate(second, `window.cwdOutput = ''; window.spark.onData(${JSON.stringify(workspace.id)}, data => { window.cwdOutput += data }); undefined`)
+    await waitFor(() => evaluate(second, "window.cwdOutput.includes('>')"))
+    await evaluate(second, `window.spark.write(${JSON.stringify(workspace.id)}, ${JSON.stringify("Write-Output ('CWD_'+'RESULT=' + (Get-Location).Path)\r")})`)
+    await waitFor(() => evaluate(second, `window.cwdOutput.includes(${JSON.stringify('CWD_RESULT=' + cwd)})`))
+    console.log('PASS real PowerShell starts in the selected directory including spaces, Chinese and apostrophes')
+    await assert.rejects(evaluate(second, `window.spark.spawn(${JSON.stringify({ cwd: join(cwd, 'missing') })})`), /工作区目录不存在/)
+    await assert.rejects(evaluate(second, "window.spark.resolveCwd('relative-path')"), /绝对路径/)
+    assert.equal((await evaluate<unknown[]>(second, 'window.spark.listSessions()')).length, 2)
+    console.log('PASS invalid workspace paths fail explicitly without spawning a terminal in the home directory')
     second.destroy()
     clearTimeout(timeout)
     killAllSessions()

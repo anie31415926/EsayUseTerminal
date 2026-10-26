@@ -61,8 +61,8 @@ function waitForSession(
   })
 }
 
-export async function launchPack(controller: TerminalController, shellPath: string, pack: InjectionPack): Promise<void> {
-  const id = await controller.create(pack.shell || shellPath || undefined, pack.cwd || undefined)
+export async function launchPack(controller: TerminalController, shellPath: string, pack: InjectionPack, workspaceCwd = ''): Promise<void> {
+  const id = await controller.create(pack.shell || shellPath || undefined, workspaceCwd || pack.cwd || undefined)
   const session = controller.all().find((item) => item.ptyId === id)
   if (!session) return
   const timeoutMs = pack.readyTimeoutMs ?? READY_TIMEOUT_MS

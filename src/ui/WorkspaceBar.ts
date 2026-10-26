@@ -1,45 +1,54 @@
 import { registerInputShortcut } from '../shortcuts'
 
-/**
- * 工作区栏：顶部一条窄栏，显示/编辑下次新标签的启动目录。
- * - 回车或点 ✓ 保存（写 localStorage）
- * - 点 📁 弹系统目录选择框
- * - 不影响终端里已经在跑的 cd
- */
+/** The view delegates directory validation and terminal creation to its caller. */
 export class WorkspaceBar {
   private input: HTMLInputElement
-  private onChange: (cwd: string) => void
-  current: string
+  private buttons: HTMLButtonElement[]
+  private error: HTMLElement
+  private busy = false
 
-  constructor(onChange: (cwd: string) => void) {
-    this.onChange = onChange
-    this.current = localStorage.getItem('spark.cwd') ?? ''
-
+  constructor(private onApply: (cwd: string) => Promise<string>, initial = '') {
     const bar = document.getElementById('workspace-bar')!
-    this.input = bar.querySelector('input')! as HTMLInputElement
-    this.input.value = this.display()
-
+    this.input = bar.querySelector('input')!
+    this.input.value = initial
+    this.buttons = [...bar.querySelectorAll<HTMLButtonElement>('[data-act]')]
+    this.error = document.getElementById('workspace-error')!
+    this.input.addEventListener('input', () => this.clearError())
     bar.querySelector('[data-act="browse"]')!.addEventListener('click', async () => {
-      const picked = await window.spark.pickFolder()
-      if (picked) this.set(picked)
+      try {
+        const picked = await window.spark.pickFolder()
+        if (picked) { this.input.value = picked; await this.apply() }
+      } catch (error) { this.showError(error) }
     })
-    bar.querySelector('[data-act="go"]')!.addEventListener('click', () => this.commit())
-    registerInputShortcut('workspace.save', this.input, () => this.commit())
+    bar.querySelector('[data-act="go"]')!.addEventListener('click', () => void this.apply())
+    registerInputShortcut('workspace.save', this.input, () => void this.apply())
   }
 
-  private display(): string {
-    return this.current || '默认（用户主目录）'
+  showError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error)
+    this.error.textContent = message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+    this.error.hidden = false
+    this.input.setAttribute('aria-invalid', 'true')
   }
 
-  private commit() {
-    const v = this.input.value.trim().replace(/["']/g, '')
-    this.set(v)
+  private clearError() {
+    this.error.hidden = true
+    this.error.textContent = ''
+    this.input.removeAttribute('aria-invalid')
   }
 
-  set(cwd: string) {
-    this.current = cwd
-    this.input.value = cwd || '默认（用户主目录）'
-    localStorage.setItem('spark.cwd', cwd)
-    this.onChange(cwd)
+  private async apply() {
+    if (this.busy) return
+    this.busy = true
+    this.clearError()
+    this.input.disabled = true
+    for (const button of this.buttons) button.disabled = true
+    try { this.input.value = await this.onApply(this.input.value) }
+    catch (error) { this.showError(error) }
+    finally {
+      this.busy = false
+      this.input.disabled = false
+      for (const button of this.buttons) button.disabled = false
+    }
   }
 }

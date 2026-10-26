@@ -29,15 +29,16 @@
 
     <div id="workspace-bar">
       <span class="ws-label">工作区</span>
-      <input type="text" spellcheck="false" placeholder="输入路径或浏览选择…" />
+      <input type="text" spellcheck="false" placeholder="默认：用户主目录" aria-label="工作区目录" aria-describedby="workspace-error" />
       <button data-act="browse" title="选择文件夹">📁</button>
-      <button data-act="go" title="应用此路径作为新标签启动目录">✓</button>
+      <button data-act="go" title="在此目录打开终端">✓</button>
       <span class="ws-sep"></span>
       <span class="ws-label">内容包</span>
       <select id="pack-select" title="选择一个注入内容包"></select>
       <button id="pack-launch" title="启动并发送选中的内容包">🚀</button>
     </div>
 
+    <div id="workspace-error" role="alert" hidden></div>
     <main id="terminal-host"></main>
 
     <footer id="statusbar">

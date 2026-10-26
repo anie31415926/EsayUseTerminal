@@ -15,7 +15,7 @@ export interface InjectionPack {
   name: string
   /**  tooltip / 副标题 */
   description?: string
-  /** 新标签的启动目录（不存在时主进程自动回退主目录） */
+  /** 未选择工作区时的新标签启动目录；无效路径会报错 */
   cwd?: string
   /** 强制 shell（不传则沿用当前默认 shell 候选第一个） */
   shell?: string

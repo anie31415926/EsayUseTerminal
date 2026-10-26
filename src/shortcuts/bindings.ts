@@ -82,7 +82,7 @@ export const shortcutDescriptions: Record<ShortcutCommand, ShortcutDescription> 
   'input.submit': { label: '发送草稿', group: '终端与输入', scope: '独立输入框' },
   'rename.confirm': { label: '确认重命名', group: '表单与面板', scope: '标签名称输入框' },
   'rename.cancel': { label: '取消重命名', group: '表单与面板', scope: '标签名称输入框' },
-  'workspace.save': { label: '保存工作区路径', group: '表单与面板', scope: '工作区路径输入框' },
+  'workspace.save': { label: '应用工作区并打开终端', group: '表单与面板', scope: '工作区路径输入框' },
   'pack.launch': { label: '启动所选内容包', group: '表单与面板', scope: '内容包选择框' },
   'menu.close': { label: '关闭右键菜单', group: '表单与面板', scope: '右键菜单打开时' },
   'shortcuts.toggle': { label: '打开 / 关闭快捷键列表', group: '表单与面板', scope: '窗口内' },

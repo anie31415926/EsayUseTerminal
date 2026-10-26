@@ -103,5 +103,16 @@ export async function runPackTests() {
   await test('built-in packs submit automatically', async () => {
     assert(BUILTIN_PACKS.every((pack) => pack.autoSubmit !== false), 'a built-in pack still stops at the input box')
   })
+  await test('content packs prefer the selected workspace and retain their fallback when none is selected', async () => {
+    const state = setup({ launchCommand: undefined, injectText: undefined, cwd: 'C:\\pack-default' })
+    const directories: (string | undefined)[] = []
+    state.controller.create = async (_shell, cwd) => { directories.push(cwd); return state.session.ptyId }
+    try {
+      await launchPack(state.controller, '', state.pack, "C:\\workspace 中文's folder")
+      await launchPack(state.controller, '', state.pack)
+      assert(directories[0] === "C:\\workspace 中文's folder" && directories[1] === state.pack.cwd, 'content pack ignored workspace precedence')
+      assert(BUILTIN_PACKS.every((pack) => !pack.launchCommand?.includes('--cd')), 'built-in command overrides the selected working directory')
+    } finally { state.dispose() }
+  })
   return results
 }

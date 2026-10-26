@@ -16,6 +16,7 @@ VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 - [x] 字体缩放：`Ctrl + =` / `Ctrl + -` / `Ctrl + 0`，或 **Ctrl + 鼠标滚轮**
 - [x] 鼠标滚轮滚动、右侧拖动滚动条查看历史（scrollback 5000 行）
 - [x] 拖文件进终端自动粘贴带引号的路径
+- [x] 切换工作区：选择文件夹、点击 ✓ 或在路径框按 Enter，立即打开并激活该目录的新终端；原终端继续运行，新标签和内容包沿用所选工作区，无效目录明确报错
 - [x] 深色活力主题（青柠 + 电光紫渐变点缀）
 - [x] 自定义无框窗口、底部状态栏（shell / 行列 / 缩放比例）
 
@@ -45,6 +46,7 @@ VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 - `ui/InputEditor.ts` 只负责未发送文字的编辑、撤销和重做；`terminal/SessionInput.ts` 负责把草稿提交给当前会话，关闭会话时取消延迟发送。
 - `electron/WindowManager.ts` 管理独立窗口与启动内容包；PTY 按窗口归属列出、操作和回收。多个窗口由同一应用进程协调，共享浏览器配置，避免多个进程竞争写入配置目录。
 - `ui/TabScroller.ts` 独立处理标签横向滚动和全部标签菜单，`TabBar` 负责提供标签数据与激活回调。
+- `core/WorkspaceManager.ts` 统一管理工作区校验与保存，`ui/WorkspaceBar.ts` 只负责输入和错误展示；主进程校验实际目录，明确路径无效时不静默回退。
 - 主题是 CSS 变量 + `ThemeManager`，新增主题 = 新 CSS + 一条登记。
 - preload 用 `contextBridge` 暴露最小 API，主进程永远拿不到渲染进程的 DOM。
 

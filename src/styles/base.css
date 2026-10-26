@@ -228,6 +228,14 @@ body {
   -webkit-app-region: no-drag;
 }
 #workspace-bar input:focus { border-color: var(--accent); }
+#workspace-bar input[aria-invalid="true"] { border-color: var(--danger, #e65b65); }
+#workspace-bar [disabled] { opacity: 0.5; cursor: wait; }
+#workspace-error {
+  padding: 5px 14px;
+  color: var(--danger, #e65b65);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 #workspace-bar button {
   -webkit-app-region: no-drag;
   width: 24px; height: 24px;
