@@ -1,6 +1,6 @@
 import { app, BrowserWindow } from 'electron'
 import assert from 'node:assert/strict'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { WindowManager } from '../electron/WindowManager'
@@ -71,6 +71,28 @@ app.whenReady().then(async () => {
     await assert.rejects(evaluate(second, "window.spark.resolveCwd('relative-path')"), /绝对路径/)
     assert.equal((await evaluate<unknown[]>(second, 'window.spark.listSessions()')).length, 2)
     console.log('PASS invalid workspace paths fail explicitly without spawning a terminal in the home directory')
+    const shimDir = join(process.env.SPARK_TEST_DATA!, '..', 'codex-shim')
+    mkdirSync(shimDir)
+    writeFileSync(join(shimDir, 'codex.ps1'), "Write-Output ('INTEGRATION_'+'ARGS=' + ($args -join '|'))\n")
+    const previousPath = process.env.PATH
+    let integrated: { id: string }
+    try {
+      process.env.PATH = `${shimDir};${previousPath ?? ''}`
+      integrated = await evaluate<{ id: string }>(second, `window.spark.spawn(${JSON.stringify({ shell, cwd })})`)
+    } finally { process.env.PATH = previousPath }
+    await evaluate(second, `window.integrationOutput = ''; window.spark.onData(${JSON.stringify(integrated.id)}, data => { window.integrationOutput += data }); undefined`)
+    await waitFor(() => evaluate(second, "window.integrationOutput.includes('>')"))
+    await evaluate(second, `window.spark.write(${JSON.stringify(integrated.id)}, ${JSON.stringify('codex resume fake-thread\r')})`)
+    await waitFor(() => evaluate(second, "window.integrationOutput.includes('INTEGRATION_ARGS=')"))
+    const integrationOutput = await evaluate<string>(second, 'window.integrationOutput')
+    assert.match(integrationOutput, /INTEGRATION_ARGS=--no-alt-screen\|-c\|tui\.alternate_screen="?never"?\|-c\|tui\.fullscreen_transcript=false\|resume\|fake-thread/)
+    console.log('PASS PowerShell Codex integration preserves resume arguments and disables application-owned transcript scrolling')
+    await evaluate(second, `window.integrationOutput = ''; window.spark.write(${JSON.stringify(integrated.id)}, ${JSON.stringify('codex --no-alt-screen --cd "C:\\folder with spaces"\r')})`)
+    await waitFor(() => evaluate(second, "window.integrationOutput.includes('INTEGRATION_ARGS=')"))
+    const argumentsLine = (await evaluate<string>(second, 'window.integrationOutput')).split('\n').find((line) => line.includes('INTEGRATION_ARGS='))!
+    assert.equal(argumentsLine.split('--no-alt-screen').length - 1, 1)
+    assert.ok(argumentsLine.includes('C:\\folder with spaces'))
+    console.log('PASS content pack flags are not duplicated and quoted Codex arguments remain intact')
     second.destroy()
     clearTimeout(timeout)
     killAllSessions()

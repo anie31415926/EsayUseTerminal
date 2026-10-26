@@ -15,7 +15,8 @@ VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 - [x] 独立的窗口标题行提供完整拖动区域，标签与新建按钮位于下一行，标签增多时也不会挤占窗口拖动空间
 - [x] 标签重命名：双击标题或 `F2` 内联编辑，右键可「恢复自动标题」，改名后锁定不被 shell 标题覆盖
 - [x] 字体缩放：`Ctrl + =` / `Ctrl + -` / `Ctrl + 0`，或 **Ctrl + 鼠标滚轮**
-- [x] 鼠标滚轮滚动、右侧拖动滚动条查看历史（scrollback 5000 行）
+- [x] 鼠标滚轮滚动、右侧拖动滚动条查看历史（scrollback 50000 行）
+- [x] PowerShell 中的 Codex 启动适配：直接输入 `codex` 或使用内容包均保留终端历史滚动，恢复长对话后仍可拖动右侧滚动条；适配仅作用于本应用的新会话，不修改系统配置，已有同名函数或别名保持不变
 - [x] 拖文件进终端自动粘贴带引号的路径
 - [x] 切换工作区：选择文件夹、点击 ✓ 或在路径框按 Enter，立即打开并激活该目录的新终端；原终端继续运行，新标签和内容包沿用所选工作区，无效目录明确报错
 - [x] 深色活力主题（青柠 + 电光紫渐变点缀）
@@ -46,6 +47,7 @@ VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 - 快捷键键位统一在 `src/shortcuts/bindings.ts` 定义，`core/ShortcutManager.ts` 负责组合键匹配、焦点作用域、优先级和注销；组件只注册命令处理函数，不自行监听键盘组合。
 - `ui/InputEditor.ts` 只负责未发送文字的编辑、撤销和重做；`terminal/SessionInput.ts` 负责把草稿提交给当前会话，关闭会话时取消延迟发送。
 - `electron/WindowManager.ts` 管理独立窗口与启动内容包；PTY 按窗口归属列出、操作和回收。多个窗口由同一应用进程协调，共享浏览器配置，避免多个进程竞争写入配置目录。
+- `electron/shellIntegration.ts` 独立维护 shell 启动适配，PowerShell 加载原有 profile 后安装会话内的 Codex 命令函数；其他 shell 沿用原启动方式。Codex 的滚动兼容参数在 `src/shared/codex.ts` 统一维护，内容包与 shell 适配共享。
 - `ui/TabScroller.ts` 独立处理标签横向滚动和全部标签菜单，`TabBar` 负责提供标签数据与激活回调。
 - `core/WorkspaceManager.ts` 统一管理工作区校验与保存，`ui/WorkspaceBar.ts` 只负责输入和错误展示；主进程校验实际目录，明确路径无效时不静默回退。
 - 主题是 CSS 变量 + `ThemeManager`，新增主题 = 新 CSS + 一条登记。

@@ -61,7 +61,7 @@ export class TerminalSession {
       fontWeight: 400,
       cursorBlink: true,
       cursorStyle: 'bar',
-      scrollback: 5000,
+      scrollback: 50000,
       theme: themeManager.xtermTheme(),
       allowProposedApi: true,
       macOptionIsMeta: false

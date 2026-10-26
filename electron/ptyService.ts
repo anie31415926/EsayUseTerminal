@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
+import { shellArguments } from './shellIntegration'
 
 const execFileAsync = promisify(execFile)
 
@@ -32,12 +33,12 @@ function spawnPty(shellPath: string, cwd: string, cols: number, rows: number): p
 
   if (process.platform === 'win32') {
     try {
-      return pty.spawn(shellPath, [], { ...opts, useConptyDll: true })
+      return pty.spawn(shellPath, shellArguments(shellPath), { ...opts, useConptyDll: true })
     } catch (err) {
       console.warn('[pty] conpty.dll 不可用，回退系统 ConPTY：', (err as Error)?.message ?? err)
     }
   }
-  return pty.spawn(shellPath, [], opts)
+  return pty.spawn(shellPath, shellArguments(shellPath), opts)
 }
 
 /** 窗口或 webContents 任一销毁后都别再 send，否则主进程会抛 Object has been destroyed */

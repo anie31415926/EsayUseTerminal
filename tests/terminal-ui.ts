@@ -290,6 +290,7 @@ async function runRegressionTests() {
   })
   await test('Codex content pack preserves terminal history', () => {
     assert(BUILTIN_PACKS.filter((pack) => pack.launchCommand?.startsWith('codex ')).every((pack) => pack.launchCommand!.includes('--no-alt-screen')), 'Codex pack enables alternate screen without scrollback')
+    assert(BUILTIN_PACKS.filter((pack) => pack.launchCommand?.startsWith('codex ')).every((pack) => pack.launchCommand!.includes('tui.alternate_screen=never') && pack.launchCommand!.includes('tui.fullscreen_transcript=false')), 'Codex pack allows resumed threads to take over transcript scrolling')
   })
   await test('selecting a content pack and clicking launch starts and submits its full prompt', async () => {
     const waitUntil = async (check: () => boolean) => {

@@ -1,4 +1,5 @@
 import type { InjectionPack } from './types'
+import { CODEX_SCROLLBACK_ARGS } from '../shared/codex'
 
 /**
  * 内置注入包。新增包直接往这个数组里加即可；UI 会自动渲染。
@@ -32,7 +33,7 @@ export const BUILTIN_PACKS: InjectionPack[] = [
     name: 'Codex · A1 全权限',
     description: '在所选工作区启动 Codex 并发送仓记契约；未选择工作区时使用 Project-A1',
     cwd: A1_ROOT,
-    launchCommand: 'codex --no-alt-screen --dangerously-bypass-approvals-and-sandbox',
+    launchCommand: `codex ${CODEX_SCROLLBACK_ARGS.join(' ')} --dangerously-bypass-approvals-and-sandbox`,
     inputReadyPattern: '^\\s*›\\s*$',
     injectText: A1_PROMPT,
     autoSubmit: true,
