@@ -10,7 +10,11 @@ app.disableHardwareAcceleration()
 app.setPath('userData', process.env.SPARK_TEST_DATA!)
 
 app.whenReady().then(async () => {
-  const timeout = setTimeout(() => { killAllSessions(); app.exit(1) }, 20000)
+  const timeout = setTimeout(() => {
+    console.error('Native window regression tests timed out')
+    killAllSessions()
+    app.exit(1)
+  }, 45000)
   const manager = new WindowManager(() => new BrowserWindow({
     width: 640, height: 420, show: false,
     webPreferences: { preload: process.env.SPARK_TEST_PRELOAD!, sandbox: true, contextIsolation: true, backgroundThrottling: false }
@@ -31,6 +35,8 @@ app.whenReady().then(async () => {
     await second.loadURL('data:text/html,<title>Second window</title>')
     const one = await evaluate<{ id: string }>(first, 'window.spark.spawn({ cols: 80, rows: 24 })')
     const two = await evaluate<{ id: string }>(second, 'window.spark.spawn({ cols: 80, rows: 24 })')
+    assert.equal((one as { windowsPty?: { backend: string } }).windowsPty?.backend, 'conpty')
+    assert.equal(await evaluate(second, '(async () => (await window.spark.listSessions())[0].windowsPty.backend)()'), 'conpty')
     assert.notEqual(one.id, two.id)
     assert.deepEqual(await evaluate(first, '(async () => (await window.spark.listSessions()).map(s => s.id))()'), [one.id])
     assert.deepEqual(await evaluate(second, '(async () => (await window.spark.listSessions()).map(s => s.id))()'), [two.id])

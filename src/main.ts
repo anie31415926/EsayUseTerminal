@@ -119,9 +119,6 @@ async function main() {
       statusBar.setShell(shellName(first.shellPath || 'shell'))
     }
 
-    const ro = new ResizeObserver(() => controller.active()?.fit.fit())
-    ro.observe(host)
-
     host.addEventListener('wheel', (e) => {
       if (!e.ctrlKey || e.deltaY === 0) return
       e.preventDefault()

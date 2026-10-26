@@ -46,10 +46,10 @@ export class TerminalController {
     if (typeof window.spark.listSessions !== 'function') return false
     const alive = await window.spark.listSessions()
     let any = false
-    for (const { id, shellPath } of alive) {
+    for (const { id, shellPath, windowsPty } of alive) {
       if (this.sessions.has(id)) continue
       const s = new TerminalSession({ shellPath })
-      await s.adopt(id, shellPath)
+      await s.adopt(id, shellPath, { windowsPty })
       this.hostEl.appendChild(s.host)
       this.sessions.set(id, s)
       bus.emit('session:created', { id, title: this.nextTitle() })

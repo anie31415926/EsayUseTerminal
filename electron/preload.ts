@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { PtyCompatibility } from '../src/shared/pty'
 
 /**
  * preload 桥：渲染进程只能通过这里暴露的 API 与主进程通信，
@@ -6,14 +7,14 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
  */
 const api = {
   spawn: (opts: { cols?: number; rows?: number; cwd?: string; shell?: string }) =>
-    ipcRenderer.invoke('pty:spawn', opts) as Promise<{ id: string; shellPath: string; candidates: string[] }>,
+    ipcRenderer.invoke('pty:spawn', opts) as Promise<{ id: string; shellPath: string; candidates: string[] } & PtyCompatibility>,
   write: (id: string, data: string) => ipcRenderer.send('pty:write', id, data),
   resize: (id: string, cols: number, rows: number) => ipcRenderer.send('pty:resize', id, cols, rows),
   kill: (id: string) => ipcRenderer.send('pty:kill', id),
   detectShells: () => ipcRenderer.invoke('shell:detect') as Promise<string[]>,
 
   // 活着的 pty 会话清单（渲染进程热重载后重建绑定用）
-  listSessions: () => ipcRenderer.invoke('pty:list') as Promise<{ id: string; shellPath: string }[]>,
+  listSessions: () => ipcRenderer.invoke('pty:list') as Promise<({ id: string; shellPath: string } & PtyCompatibility)[]>,
 
   // 弹出系统目录选择框，返回选中路径（取消返回 null）
   pickFolder: () => ipcRenderer.invoke('dialog:pick-folder') as Promise<string | null>,

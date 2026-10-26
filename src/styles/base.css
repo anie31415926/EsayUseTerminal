@@ -276,6 +276,8 @@ body {
 /* ---------- Terminal host ---------- */
 #terminal-host {
   flex: 1;
+  min-height: 0;
+  min-width: 0;
   position: relative;
   overflow: hidden;
   background: var(--term-bg, #0e1116);
@@ -356,6 +358,7 @@ body {
 /* ---------- StatusBar ---------- */
 #statusbar {
   height: var(--statusbar-h);
+  flex: none;
   display: flex;
   align-items: center;
   gap: 14px;

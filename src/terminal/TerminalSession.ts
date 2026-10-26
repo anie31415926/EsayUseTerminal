@@ -8,6 +8,8 @@ import { themeManager } from '../core/ThemeManager'
 import { bus } from '../core/EventBus'
 import { shortcuts } from '../shortcuts'
 import { SessionInput } from './SessionInput'
+import { TerminalLayout } from './TerminalLayout'
+import type { PtyCompatibility } from '../shared/pty'
 
 export interface SessionOptions {
   shellPath?: string
@@ -50,6 +52,7 @@ export class TerminalSession {
   private exited = false
   private webgl: WebglAddon | null = null
   private input: SessionInput
+  private layout: TerminalLayout
 
   constructor(opts: SessionOptions = {}) {
     this.baseFontSize = loadNum(FONT_KEY, 13, FONT_MIN, FONT_MAX)
@@ -83,6 +86,7 @@ export class TerminalSession {
     this.host = document.createElement('div')
     this.host.className = 'session-host'
     this.host.style.display = 'none'
+    this.layout = new TerminalLayout(this.host, this.term, this.fit)
     this.input = new SessionInput(this.term, (data) => this.writeInput(data), () => !!this.ptyId && !this.exited)
 
     // 用户在终端里的输入 -> 写到 pty
@@ -144,11 +148,12 @@ export class TerminalSession {
   toggleInputEditor() { this.input.toggle() }
 
   async start(cwd?: string) {
-    const { id, shellPath } = await window.spark.spawn({
+    const { id, shellPath, windowsPty } = await window.spark.spawn({
       cols: this.term.cols || 80, rows: this.term.rows || 24,
       cwd, shell: this.shellPath || undefined
     })
     this.ptyId = id
+    if (windowsPty) this.term.options.windowsPty = windowsPty
     // 采纳主进程实际选中的 shell：传空时会回退到候选列表第一个，
     // 不写回来会导致状态栏显示 "shell"、后续新标签也一直传空
     if (shellPath) this.shellPath = shellPath
@@ -157,9 +162,10 @@ export class TerminalSession {
   }
 
   /** 渲染进程热重载后：接管主管里仍存在的 pty 会话，不重新 spawn */
-  async adopt(ptyId: string, shellPath: string) {
+  async adopt(ptyId: string, shellPath: string, compatibility: PtyCompatibility = {}) {
     this.ptyId = ptyId
     this.shellPath = shellPath
+    if (compatibility.windowsPty) this.term.options.windowsPty = compatibility.windowsPty
     this.bindPty(ptyId)
     this.openTerminal()
     // 让 pty 立刻按当前视口回吐一屏内容（PowerShell/cmd 不会主动重绘）
@@ -182,10 +188,10 @@ export class TerminalSession {
 
   private openTerminal() {
     if (!this.term.element) this.term.open(this.host)
-    this.fit.fit()
+    this.layout.schedule()
   }
 
-  show() { this.host.style.display = 'block'; this.input.show(true); requestAnimationFrame(() => this.fit.fit()) }
+  show() { this.host.style.display = 'block'; this.input.show(true); this.layout.schedule() }
   hide() { this.host.style.display = 'none'; this.input.show(false) }
 
   focus() { if (!this.input.focus()) this.term.focus() }
@@ -197,8 +203,7 @@ export class TerminalSession {
   setFontSize(size: number) {
     this.baseFontSize = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(size)))
     try { localStorage.setItem(FONT_KEY, String(this.baseFontSize)) } catch { /* 无痕模式忽略 */ }
-    this.term.options.fontSize = Math.round(this.baseFontSize * this.zoomFactor)
-    this.fit.fit()
+    this.layout.setFontSize(Math.round(this.baseFontSize * this.zoomFactor))
   }
   getFontSize() { return this.baseFontSize }
 
@@ -206,8 +211,7 @@ export class TerminalSession {
   setZoom(factor: number) {
     this.zoomFactor = Math.min(2.5, Math.max(0.5, factor))
     try { localStorage.setItem(ZOOM_KEY, String(this.zoomFactor)) } catch { /* 忽略 */ }
-    this.term.options.fontSize = Math.round(this.baseFontSize * this.zoomFactor)
-    this.fit.fit()
+    this.layout.setFontSize(Math.round(this.baseFontSize * this.zoomFactor))
     bus.emit('zoom:changed', { factor: this.zoomFactor })
   }
   getZoom() { return this.zoomFactor }
@@ -216,6 +220,7 @@ export class TerminalSession {
     this.unsubscribeData?.()
     this.unsubscribeExit?.()
     this.offTheme?.()
+    this.layout.dispose()
     this.input.dispose()
     // 已经退出的会话不能再 kill：ConPTY 会对已消失的控制台 fork 枚举进程的 agent，
     // 子进程里 AttachConsole 失败会往日志里扔一坨栈（功能无影响，纯噪音）

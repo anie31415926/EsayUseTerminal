@@ -1,12 +1,17 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import * as pty from 'node-pty'
-import { homedir } from 'node:os'
+import { homedir, release } from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import * as path from 'node:path'
 import * as fs from 'node:fs'
 import { shellArguments } from './shellIntegration'
+import type { PtyCompatibility } from '../src/shared/pty'
+
+const compatibility: PtyCompatibility = process.platform === 'win32'
+  ? { windowsPty: { backend: 'conpty', buildNumber: Number(release().split('.')[2]) || 0 } }
+  : {}
 
 const execFileAsync = promisify(execFile)
 
@@ -212,7 +217,7 @@ export function registerPtyIpc() {
 
     const s = new PtySession(win, shellPath, cwd, opts?.cols ?? 80, opts?.rows ?? 24)
     sessions.set(s.id, s)
-    return { id: s.id, shellPath, candidates }
+    return { id: s.id, shellPath, candidates, ...compatibility }
   })
 
   ipcMain.on('pty:write', (e, id: string, data: string) => ownedSession(e.sender.id, id)?.write(data))
@@ -224,7 +229,7 @@ export function registerPtyIpc() {
 
   // 渲染进程热重载后重建会话列表用
   ipcMain.handle('pty:list', (e) =>
-    [...sessions.values()].filter((s) => s.ownerId === e.sender.id).map((s) => ({ id: s.id, shellPath: s.shellPath }))
+    [...sessions.values()].filter((s) => s.ownerId === e.sender.id).map((s) => ({ id: s.id, shellPath: s.shellPath, ...compatibility }))
   )
   ipcMain.handle('shell:detect', () => getCachedCandidates())
   ipcMain.handle('workspace:resolve', (_e, cwd: string) => resolveCwd(cwd))

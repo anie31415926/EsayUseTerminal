@@ -8,6 +8,7 @@ import { runShortcutTests } from './shortcuts'
 import { listShortcuts } from '../src/shortcuts/bindings'
 import { bus } from '../src/core/EventBus'
 import { showMenu } from '../src/ui/ContextMenu'
+import { runLayoutTests } from './terminal-layout'
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const settle = async () => { await frame(); await frame() }
@@ -129,7 +130,7 @@ async function runRegressionTests() {
     spawn: async (opts: { cwd?: string }) => {
       if (failSpawn) throw new Error('spawn denied')
       spawnOptions.push(opts)
-      return { id: `mock-${++spawnCount}`, shellPath: 'test.exe', candidates: ['test.exe'] }
+      return { id: `mock-${++spawnCount}`, shellPath: 'test.exe', candidates: ['test.exe'], windowsPty: { backend: 'conpty', buildNumber: 26100 } }
     },
     pickFolder: async () => pickedFolder,
     resolveCwd: async (cwd: string) => {
@@ -142,6 +143,10 @@ async function runRegressionTests() {
     onExit: () => () => {},
     window: { setBg: async () => {}, newWindow: async () => { newWindowCount++ } }
   } })
+  await runLayoutTests(test)
+  spawnCount = 0
+  spawnOptions.length = 0
+  writes.length = 0
   await import('../src/main')
   await settle()
   const textarea = host.querySelector<HTMLTextAreaElement>('textarea')!
