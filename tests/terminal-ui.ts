@@ -9,6 +9,7 @@ import { listShortcuts } from '../src/shortcuts/bindings'
 import { bus } from '../src/core/EventBus'
 import { showMenu } from '../src/ui/ContextMenu'
 import { runLayoutTests } from './terminal-layout'
+import { runImageInputTests } from './image-input'
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const settle = async () => { await frame(); await frame() }
@@ -393,7 +394,8 @@ async function runRegressionTests() {
     draftKey('KeyW', { ctrlKey: true, shiftKey: true })
     await new Promise<void>((resolve) => setTimeout(resolve, 300))
     assert(!document.querySelector('.input-editor'), 'closed session retained its editor')
-    assert(writes.length === start + 1 && writes[start].text.startsWith('\x1b[200~'), 'closing a draft sent a deferred Enter')
+    const sent = writes.slice(start)
+    assert(sent.length <= 1 && sent.every((item) => item.text.startsWith('\x1b[200~')), 'closing a draft sent a deferred Enter')
   })
   await test('overflowing tabs keep the new active tab and window controls visible', async () => {
     for (let i = 0; i < 10; i++) document.getElementById('btn-new-tab')!.click()
@@ -529,6 +531,7 @@ async function runRegressionTests() {
       assert(!document.getElementById('workspace-error')!.hidden && !input.disabled, 'failed spawn did not report or recover')
     } finally { failSpawn = false }
   })
+  await runImageInputTests(test, dataHandlers, writes)
   await test('settings follow their anchor when the window layout changes', () => {
     const button = document.getElementById('btn-settings')!
     button.click()

@@ -1,5 +1,7 @@
 import { registerInputShortcut } from '../shortcuts'
 import { shortcutLabel } from '../shortcuts/bindings'
+import { ImageAttachments } from './ImageAttachments'
+import type { ImageAttachment, InputDraft } from '../shared/images'
 
 let nextId = 0
 
@@ -12,8 +14,10 @@ export class InputEditor {
   private submitting = false
   private disposed = false
   private error = document.createElement('div')
+  private images: ImageAttachments
 
-  constructor(private send: (text: string) => Promise<boolean>, onTerminal: () => void) {
+  constructor(private send: (draft: InputDraft) => Promise<boolean>, onTerminal: () => void) {
+    this.images = new ImageAttachments((message) => this.showError(message), () => { this.error.hidden = true })
     this.element.className = 'input-editor'
     this.element.hidden = true
     this.textarea.className = 'input-editor-text'
@@ -36,37 +40,46 @@ export class InputEditor {
     this.error.className = 'input-editor-error'
     this.error.setAttribute('role', 'status')
     this.error.hidden = true
-    this.element.append(this.textarea, actions)
+    this.element.append(this.images.element, this.textarea, actions)
     this.element.append(this.error)
+    this.textarea.addEventListener('paste', (event) => this.images.handlePaste(event))
+    this.textarea.addEventListener('input', () => { this.error.hidden = true })
     this.unregister = registerInputShortcut('input.submit', this.textarea, () => { void this.submit() }, `editor-${++nextId}`)
   }
 
   private async submit() {
-    if (this.submitting || this.disposed || !this.textarea.value.trim()) return
+    if (this.submitting || this.disposed || (!this.textarea.value.trim() && !this.images.items.length && !this.images.loading)) return
     this.submitting = true
     this.textarea.readOnly = true
     this.submitButton.disabled = true
+    this.images.setDisabled(true)
     this.error.hidden = true
     try {
-      if (await this.send(this.textarea.value) && !this.disposed) {
+      await this.images.ready()
+      if (this.disposed) return
+      if (!this.textarea.value.trim() && !this.images.items.length) return
+      if (await this.send({ text: this.textarea.value, images: [...this.images.items] }) && !this.disposed) {
         // Assigning value starts a fresh edit history; sent drafts cannot be undone into the next prompt.
         this.textarea.value = ''
+        this.images.clear()
       } else if (!this.disposed) {
-        this.error.textContent = '暂时无法发送，文字已保留'
-        this.error.hidden = false
+        this.showError('暂时无法发送，内容已保留')
       }
-    } catch {
+    } catch (error) {
       if (!this.disposed) {
-        this.error.textContent = '发送失败，文字已保留'
-        this.error.hidden = false
+        this.showError(error instanceof Error ? error.message : '发送失败，内容已保留')
       }
     } finally {
       this.submitting = false
       this.textarea.readOnly = false
       this.submitButton.disabled = false
+      this.images.setDisabled(false)
       if (!this.disposed && !this.element.hidden && this.element.contains(document.activeElement)) this.focus()
     }
   }
+
+  showError(message: string) { this.error.textContent = message; this.error.hidden = false }
+  addImage(image: ImageAttachment) { this.images.add(image) }
 
   show(visible: boolean) { this.element.hidden = !visible }
   focus() { this.textarea.focus() }
@@ -77,6 +90,7 @@ export class InputEditor {
   dispose() {
     this.disposed = true
     this.unregister()
+    this.images.dispose()
     this.element.remove()
   }
 }

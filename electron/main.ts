@@ -2,6 +2,7 @@ import { app, ipcMain, BrowserWindow, dialog } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { registerPtyIpc, killAllSessions } from './ptyService'
 import { WindowManager } from './WindowManager'
+import { registerClipboardImageIpc } from './clipboardImages'
 
 // 关键：让 Windows 任务栏/开始菜单识别这是独立应用，而不是 electron.exe 的默认图标
 app.setAppUserModelId('com.sparkterminal.app')
@@ -54,6 +55,7 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     registerPtyIpc()
+    registerClipboardImageIpc()
     registerWindowIpc()
     windows.create(autoPackId)
   })

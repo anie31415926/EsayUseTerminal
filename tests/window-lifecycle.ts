@@ -1,13 +1,17 @@
-import { app, BrowserWindow } from 'electron'
+import { app, BrowserWindow, nativeImage } from 'electron'
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { WindowManager } from '../electron/WindowManager'
 import { killAllSessions, registerPtyIpc } from '../electron/ptyService'
+import { registerClipboardImageIpc } from '../electron/clipboardImages'
+import type { ImageAttachment } from '../src/shared/images'
 
 app.disableHardwareAcceleration()
 app.setPath('userData', process.env.SPARK_TEST_DATA!)
+// Keep Electron alive until the explicit ConPTY drain at the end of the suite.
+app.on('window-all-closed', () => {})
 
 app.whenReady().then(async () => {
   const timeout = setTimeout(() => {
@@ -20,6 +24,7 @@ app.whenReady().then(async () => {
     webPreferences: { preload: process.env.SPARK_TEST_PRELOAD!, sandbox: true, contextIsolation: true, backgroundThrottling: false }
   }))
   registerPtyIpc()
+  registerClipboardImageIpc()
   const evaluate = <T>(win: BrowserWindow, code: string): Promise<T> => win.webContents.executeJavaScript(code)
   const waitFor = async (check: () => Promise<boolean>) => {
     const deadline = Date.now() + 5000
@@ -51,8 +56,31 @@ app.whenReady().then(async () => {
     assert.equal(await evaluate(first, "window.windowTestOutput.includes('FOREIGN_INPUT')"), false)
     console.log('PASS one window cannot write to or kill another window terminal')
 
+    const imageBytes = [...nativeImage.createFromBitmap(Buffer.from([0, 128, 255, 255]), { width: 1, height: 1 }).toPNG()]
+    const screenshot = await evaluate<ImageAttachment>(first, `window.spark.images.add(new Uint8Array(${JSON.stringify(imageBytes)}))`)
+    assert.ok(existsSync(screenshot.path))
+    assert.equal(screenshot.width, 1)
+    assert.equal(nativeImage.createFromDataURL(await evaluate<string>(first, `window.spark.images.preview(${JSON.stringify(screenshot.id)})`)).getSize().height, 1)
+    console.log('PASS screenshot bytes are normalized to a readable cached PNG and full preview')
+    await assert.rejects(evaluate(second, `window.spark.images.preview(${JSON.stringify(screenshot.id)})`), /截图已移除/)
+    await evaluate(second, `window.spark.images.release([${JSON.stringify(screenshot.id)}])`)
+    assert.ok(existsSync(screenshot.path))
+    console.log('PASS one window cannot preview or delete another window screenshot')
+    await evaluate(first, `window.spark.images.retain([${JSON.stringify(screenshot.id)}]); undefined`)
+    await evaluate(first, `window.spark.images.release([${JSON.stringify(screenshot.id)}])`)
+    assert.ok(existsSync(screenshot.path))
+    const unsent = await evaluate<ImageAttachment>(first, `window.spark.images.add(new Uint8Array(${JSON.stringify(imageBytes)}))`)
+    await evaluate(first, `window.spark.images.release([${JSON.stringify(unsent.id)}])`)
+    assert.equal(existsSync(unsent.path), false)
+    console.log('PASS removed drafts are deleted while sent screenshots remain readable until window close')
+    await assert.rejects(evaluate(first, 'window.spark.images.add(new Uint8Array([1, 2, 3]))'), /无法读取/)
+    console.log('PASS invalid image bytes fail explicitly without creating a cached attachment')
+
     const ownerId = first.webContents.id
     first.destroy()
+    await waitFor(async () => !existsSync(screenshot.path))
+    assert.equal(existsSync(screenshot.path), false)
+    console.log('PASS closing a window cleans up its retained screenshot files')
     assert.equal(manager.autoPackFor(ownerId), '')
     assert.deepEqual(await evaluate(second, '(async () => (await window.spark.listSessions()).map(s => s.id))()'), [two.id])
     await evaluate(second, `window.windowTestOutput = ''; window.spark.onData(${JSON.stringify(two.id)}, data => { window.windowTestOutput += data }); window.spark.write(${JSON.stringify(two.id)}, 'OWNER_INPUT')`)

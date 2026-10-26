@@ -74,7 +74,7 @@ export const shortcutDescriptions: Record<ShortcutCommand, ShortcutDescription> 
   'zoom.reset': { label: '复位字体缩放', group: '显示', scope: '窗口内' },
   'terminal.copyOrInterrupt': { label: '复制选中文字；无选中时中断命令', group: '终端与输入', scope: '终端区域' },
   'terminal.copy': { label: '复制选中文字', group: '终端与输入', scope: '终端区域' },
-  'terminal.paste': { label: '粘贴', group: '终端与输入', scope: '终端区域' },
+  'terminal.paste': { label: '粘贴文字或截图', group: '终端与输入', scope: '终端区域' },
   'terminal.clear': { label: '清屏', group: '终端与输入', scope: '终端区域' },
   'terminal.undo': { label: '撤销未发送文字', group: '终端与输入', scope: 'PowerShell / 独立输入框' },
   'terminal.redo': { label: '重做未发送文字', group: '终端与输入', scope: 'PowerShell / 独立输入框' },
@@ -100,6 +100,7 @@ export function listShortcuts() {
 
 // Native editing and mouse gestures do not register keydown handlers.
 const nativeShortcuts = [
+  { command: 'native.input.paste', label: '粘贴文字或截图附件', group: '终端与输入', scope: '独立输入框', keys: ['Ctrl+V', 'Ctrl+Shift+V'] },
   { command: 'native.input.newline', label: '草稿换行', group: '终端与输入', scope: '独立输入框', keys: ['Shift+Enter'] },
   { command: 'gesture.zoom', label: '缩放字体', group: '显示', scope: '终端区域', keys: ['Ctrl+鼠标滚轮'] }
 ]

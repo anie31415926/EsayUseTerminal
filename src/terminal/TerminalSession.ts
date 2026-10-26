@@ -118,6 +118,7 @@ export class TerminalSession {
   /** 读剪贴板并粘贴：无权限/被拒时安静失败，不抛未处理 Promise */
   async pasteFromClipboard() {
     try {
+      if (await this.input.pasteScreenshot()) return
       const text = await navigator.clipboard.readText()
       if (text) this.term.paste(text)
     } catch { /* 剪贴板不可用（无焦点 / 权限拒绝）时忽略 */ }

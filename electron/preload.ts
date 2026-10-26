@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { PtyCompatibility } from '../src/shared/pty'
+import type { ImageAttachment } from '../src/shared/images'
 
 /**
  * preload 桥：渲染进程只能通过这里暴露的 API 与主进程通信，
@@ -22,6 +23,14 @@ const api = {
 
   // 启动时是否要自动触发某个内容包 id（由 bat 脚本通过 SPARK_AUTO_PACK 注入）
   getAutoPack: () => ipcRenderer.invoke('app:get-auto-pack') as Promise<string>,
+
+  images: {
+    paste: () => ipcRenderer.invoke('images:paste') as Promise<ImageAttachment | null>,
+    add: (bytes: Uint8Array) => ipcRenderer.invoke('images:add', bytes) as Promise<ImageAttachment>,
+    preview: (id: string) => ipcRenderer.invoke('images:preview', id) as Promise<string>,
+    retain: (ids: string[]) => ipcRenderer.invoke('images:retain', ids) as Promise<void>,
+    release: (ids: string[]) => ipcRenderer.invoke('images:release', ids) as Promise<void>
+  },
 
   /**
    * 取拖入文件的真实路径。
