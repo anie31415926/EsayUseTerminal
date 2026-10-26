@@ -12,20 +12,30 @@ import process from 'node:process'
   try {
     await build({ entryPoints: ['tests/terminal-ui.ts'], bundle: true, outfile: join(testDir, 'regressions.js'), format: 'iife' })
     await build({ entryPoints: ['tests/electron-driver.ts'], bundle: true, outfile: join(testDir, 'driver.cjs'), platform: 'node', format: 'cjs', external: ['electron'] })
+    await build({ entryPoints: ['electron/preload.ts'], bundle: true, outfile: join(testDir, 'preload.cjs'), platform: 'node', format: 'cjs', external: ['electron'] })
+    await build({
+      entryPoints: ['tests/window-lifecycle.ts'], bundle: true, outfile: join(testDir, 'windows.cjs'), platform: 'node', format: 'cjs', external: ['electron'],
+      plugins: [{ name: 'native-pty', setup(build) {
+        build.onResolve({ filter: /^node-pty$/ }, () => ({ path: resolve('node_modules/node-pty/lib/index.js'), external: true }))
+      } }]
+    })
     const html = (await readFile('src/index.html', 'utf8'))
       .replace(/<link rel="stylesheet"[^>]+>/g, '')
       .replace('<script type="module" src="./main.ts"></script>', '<script src="./regressions.js"></script>')
       .replace('</head>', `<link rel="stylesheet" href="${pathToFileURL(resolve('src/styles/base.css'))}"><link rel="stylesheet" href="./regressions.css"></head>`)
     await writeFile(join(testDir, 'index.html'), html)
-    await writeFile(join(testDir, 'package.json'), JSON.stringify({ main: 'driver.cjs' }))
-    const env = { ...process.env, SPARK_TEST_HTML: join(testDir, 'index.html'), SPARK_TEST_DATA: join(testDir, 'profile') }
+    const env = { ...process.env, SPARK_TEST_HTML: join(testDir, 'index.html'), SPARK_TEST_DATA: join(testDir, 'profile'), SPARK_TEST_PRELOAD: join(testDir, 'preload.cjs') }
     delete env.ELECTRON_RUN_AS_NODE
     delete env.SPARK_AUTO_PACK
-    const child = spawn(electron, [testDir], { env, stdio: 'inherit', windowsHide: true })
-    process.exitCode = await new Promise((resolve, reject) => {
-      child.once('error', reject)
-      child.once('exit', (code) => resolve(code ?? 1))
-    })
+    for (const driver of ['driver.cjs', 'windows.cjs']) {
+      await writeFile(join(testDir, 'package.json'), JSON.stringify({ main: driver }))
+      const child = spawn(electron, [testDir], { env, stdio: 'inherit', windowsHide: true })
+      process.exitCode = await new Promise((resolve, reject) => {
+        child.once('error', reject)
+        child.once('exit', (code) => resolve(code ?? 1))
+      })
+      if (process.exitCode !== 0) break
+    }
   } finally {
     await rm(testDir, { recursive: true, force: true })
   }

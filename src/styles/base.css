@@ -50,12 +50,14 @@ body {
   gap: 8px;
   padding-left: 12px;
   flex: 1;
+  min-width: 0;
   height: 100%;
   overflow: hidden;
 }
 #titlebar .no-drag { -webkit-app-region: no-drag; display: flex; height: 100%; }
 
 .logo {
+  flex: none;
   font-weight: 700;
   font-size: 13px;
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
@@ -67,17 +69,30 @@ body {
 }
 
 /* ---------- Tabs ---------- */
+.tab-strip {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  gap: 2px;
+  -webkit-app-region: no-drag;
+}
 #tabbar {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: stretch;
   height: 100%;
   gap: 4px;
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
 }
 #tabbar::-webkit-scrollbar { display: none; }
 
 .tab {
+  flex: 0 0 160px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -107,12 +122,14 @@ body {
 }
 .tab-title {
   flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12px;
 }
 .tab-close {
+  flex: none;
   border: 0; background: transparent; color: inherit;
   width: 16px; height: 16px; border-radius: 4px;
   cursor: pointer; font-size: 14px; line-height: 1;
@@ -165,12 +182,16 @@ body {
 }
 
 .ghost-btn {
+  flex: none;
   -webkit-app-region: no-drag;
   border: 0; background: transparent; color: var(--fg-dim);
   width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
   font-size: 16px;
 }
 .ghost-btn:hover { background: var(--bg-hover); color: var(--accent); }
+.tab-nav-btn { width: 24px; }
+.tab-nav-btn:disabled { opacity: 0.3; cursor: default; background: transparent; color: var(--fg-dim); }
+.new-window-btn { width: 52px; font-size: 12px; }
 
 /* ---------- Window controls ---------- */
 .window-controls button {
@@ -358,6 +379,11 @@ body {
 .context-menu {
   position: fixed;
   min-width: 160px;
+  max-width: min(420px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--fg-dim) var(--bg);
   background: var(--bg-elev);
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -379,6 +405,7 @@ body {
 .context-menu button:hover { background: var(--bg-hover); }
 .context-menu button:disabled { opacity: 0.4; cursor: default; background: transparent; }
 .context-menu button .shortcut { color: var(--fg-dim); font-size: 11px; }
+.context-menu button > span:first-child { overflow-wrap: anywhere; }
 .context-menu .separator {
   height: 1px; background: var(--border); margin: 4px 6px;
 }

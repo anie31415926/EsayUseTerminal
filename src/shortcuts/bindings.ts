@@ -5,12 +5,14 @@ const ctrl = (code: string, shift = false): KeyBinding => ({ code, ctrl: true, s
 
 /** All keyboard assignments live here; components only register command handlers. */
 export const bindings = {
+  'window.new': [mod('KeyN', true)],
   'tab.new': [mod('KeyT', true)],
   'tab.close': [mod('KeyW', true)],
   'tab.rename': [{ code: 'F2' }],
   'tab.next': [mod('Tab')],
   'tab.previous': [mod('Tab', true)],
   'tab.select': Array.from({ length: 9 }, (_, i) => mod(`Digit${i + 1}`)),
+  'tab.list': [mod('KeyA', true)],
   'search.toggle': [mod('KeyF')],
   'zoom.in': [mod('Equal'), mod('Equal', true), mod('NumpadAdd')],
   'zoom.out': [mod('Minus'), mod('NumpadSubtract')],
@@ -55,12 +57,14 @@ interface ShortcutDescription {
 
 /** Descriptions are exhaustive: adding a binding requires its visible help entry. */
 export const shortcutDescriptions: Record<ShortcutCommand, ShortcutDescription> = {
+  'window.new': { label: '新建独立窗口', group: '窗口', scope: '窗口内' },
   'tab.new': { label: '新建标签', group: '标签', scope: '窗口内' },
   'tab.close': { label: '关闭当前标签', group: '标签', scope: '窗口内' },
   'tab.rename': { label: '重命名当前标签', group: '标签', scope: '非文本编辑状态' },
   'tab.next': { label: '下一个标签', group: '标签', scope: '窗口内' },
   'tab.previous': { label: '上一个标签', group: '标签', scope: '窗口内' },
   'tab.select': { label: '切换到对应标签（9 为最后一个）', group: '标签', scope: '窗口内' },
+  'tab.list': { label: '显示全部标签', group: '标签', scope: '窗口内' },
   'search.toggle': { label: '打开 / 关闭查找', group: '查找', scope: '窗口内' },
   'search.next': { label: '下一个匹配', group: '查找', scope: '查找输入框' },
   'search.previous': { label: '上一个匹配', group: '查找', scope: '查找输入框' },

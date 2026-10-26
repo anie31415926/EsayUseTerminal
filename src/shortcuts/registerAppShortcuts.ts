@@ -11,7 +11,9 @@ export function registerAppShortcuts(controller: TerminalController, newTab: () 
   const terminal = (command: ShortcutCommand, run: () => void) => {
     disposers.push(registerShortcut(command, { run, when: () => !!controller.active()?.hasFocus() }))
   }
+  app('window.new', () => { void window.spark.window.newWindow() }, false)
   app('tab.new', newTab, false)
+  app('tab.list', () => bus.emit('tabs:list-request', {}), false)
   app('tab.close', () => { const id = controller.active()?.ptyId; if (id) controller.close(id) }, false)
   app('tab.rename', () => { const id = controller.active()?.ptyId; if (id) bus.emit('tab:rename-request', { id }) }, false)
   const cycle = (step: number) => {

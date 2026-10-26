@@ -10,6 +10,8 @@ VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 - [x] 内嵌真实终端（自动探测 `pwsh` / `powershell` / `cmd`）
 - [x] 键盘输入命令、实时显示输出
 - [x] 多标签页（Ctrl+Shift+T 新建，Ctrl+Shift+W 关闭，Ctrl+Tab 切换）
+- [x] 多个独立窗口：重复启动 EXE、点击标题栏“新窗口”或按 Ctrl+Shift+N；各窗口的终端会话独立，关闭一个不会结束其他窗口的命令
+- [x] 标签溢出导航：左右按钮、滚轮横向滚动、全部标签菜单；新建和切换时自动显示当前标签
 - [x] 标签重命名：双击标题或 `F2` 内联编辑，右键可「恢复自动标题」，改名后锁定不被 shell 标题覆盖
 - [x] 字体缩放：`Ctrl + =` / `Ctrl + -` / `Ctrl + 0`，或 **Ctrl + 鼠标滚轮**
 - [x] 鼠标滚轮滚动、右侧拖动滚动条查看历史（scrollback 5000 行）
@@ -41,6 +43,8 @@ VSCode 同款终端内核，渲染走 canvas，大数据量输出不卡。
 - `TerminalSession` 把 xterm 实例和 pty 连接封装成黑盒，对外只有 `show/hide/focus/setZoom/dispose`。
 - 快捷键键位统一在 `src/shortcuts/bindings.ts` 定义，`core/ShortcutManager.ts` 负责组合键匹配、焦点作用域、优先级和注销；组件只注册命令处理函数，不自行监听键盘组合。
 - `ui/InputEditor.ts` 只负责未发送文字的编辑、撤销和重做；`terminal/SessionInput.ts` 负责把草稿提交给当前会话，关闭会话时取消延迟发送。
+- `electron/WindowManager.ts` 管理独立窗口与启动内容包；PTY 按窗口归属列出、操作和回收。多个窗口由同一应用进程协调，共享浏览器配置，避免多个进程竞争写入配置目录。
+- `ui/TabScroller.ts` 独立处理标签横向滚动和全部标签菜单，`TabBar` 负责提供标签数据与激活回调。
 - 主题是 CSS 变量 + `ThemeManager`，新增主题 = 新 CSS + 一条登记。
 - preload 用 `contextBridge` 暴露最小 API，主进程永远拿不到渲染进程的 DOM。
 
@@ -85,6 +89,8 @@ npm run dev
 
 Windows 安装程序输出到 `dist/SparkTerminal Setup <版本>.exe`，安装后可直接启动，无需安装 Node.js 或启动开发服务器。`dist/win-unpacked/` 是用于验证的完整应用目录，运行其中的 EXE 时需保留同目录的依赖文件。
 
+从旧版升级时先正常退出旧版窗口一次，再启动新版；之后重复启动会直接新建独立窗口。
+
 ## ⌨️ 快捷键
 
 点击状态栏的“快捷键”、在设置里选择“查看全部快捷键”，或按 `F1` 打开完整列表。列表支持搜索操作、全部备用组合键及生效范围，从统一快捷键配置生成；按 `Esc` 关闭并恢复输入焦点。
@@ -94,8 +100,10 @@ Windows 安装程序输出到 `dist/SparkTerminal Setup <版本>.exe`，安装�
 | `Ctrl + =` / `Ctrl + -` / `Ctrl + 0` | 放大 / 缩小 / 复位字体 |
 | `Ctrl + 滚轮` | 缩放字体 |
 | `Ctrl + Shift + T` | 新建标签 |
+| `Ctrl + Shift + N` | 新建独立窗口 |
 | `Ctrl + Shift + W` | 关闭当前标签 |
 | `Ctrl + Tab` / `Ctrl + Shift + Tab` | 切换标签 |
+| `Ctrl + Shift + A` | 显示全部标签菜单 |
 | `F2` | 重命名当前标签（也可双击标签标题） |
 | `F1` | 打开 / 关闭快捷键列表 |
 | `Ctrl + C` | 有选中则复制，无选中则发送 ETX 中断当前命令 |

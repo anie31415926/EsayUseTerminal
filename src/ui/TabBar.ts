@@ -2,6 +2,7 @@ import { bus } from '../core/EventBus'
 import { showMenu, type MenuEntry } from './ContextMenu'
 import { registerInputShortcut } from '../shortcuts'
 import { shortcutLabel } from '../shortcuts/bindings'
+import { TabScroller } from './TabScroller'
 
 interface Tab {
   id: string
@@ -33,9 +34,12 @@ function loadTitles(): Record<string, string> {
 const savedTitles = loadTitles()
 
 function persistTitle(id: string, title?: string) {
+  const latest = loadTitles()
   if (title) savedTitles[id] = title
   else delete savedTitles[id]
-  try { localStorage.setItem(TITLES_KEY, JSON.stringify(savedTitles)) } catch { /* 无痕模式忽略 */ }
+  if (title) latest[id] = title
+  else delete latest[id]
+  try { localStorage.setItem(TITLES_KEY, JSON.stringify(latest)) } catch { /* 无痕模式忽略 */ }
 }
 
 /**
@@ -61,12 +65,20 @@ export class TabBar {
   private onClickTab: (id: string) => void
   private onCloseTab: (id: string) => void
   private onNewTab: () => void
+  private scroller: TabScroller
+  private revealActive = false
 
   constructor(opts: { onClickTab: (id: string) => void; onCloseTab: (id: string) => void; onNewTab: () => void }) {
     this.el = document.getElementById('tabbar')!
     this.onClickTab = opts.onClickTab
     this.onCloseTab = opts.onCloseTab
     this.onNewTab = opts.onNewTab
+    this.scroller = new TabScroller(this.el, () => this.tabs.map((tab) => ({
+      label: (tab.id === this.activeId ? '✓ ' : '') + this.displayTitle(tab),
+      action: () => this.onClickTab(tab.id)
+    })))
+    bus.on('tabs:list-request', () => this.scroller.openList())
+    window.addEventListener('unload', () => this.scroller.dispose(), { once: true })
 
     const newTab = document.getElementById('btn-new-tab')!
     newTab.onclick = () => this.onNewTab()
@@ -101,6 +113,7 @@ export class TabBar {
       // 重复激活同一个标签（点当前标签、双击改名）不用重绘，少一次无谓的 DOM 重建
       if (this.activeId === id) return
       this.activeId = id
+      this.revealActive = true
       this.requestRender()
     })
     bus.on('session:closed', ({ id }) => {
@@ -147,6 +160,7 @@ export class TabBar {
 
   private render() {
     if (this.editingId) return // 编辑中冻结整栏，输入框不能被重建
+    const scrollLeft = this.el.scrollLeft
     this.el.innerHTML = ''
     for (const t of this.tabs) {
       const display = this.displayTitle(t)
@@ -262,6 +276,9 @@ export class TabBar {
     }
 
     this.emptyEl.style.display = this.tabs.length === 0 && this.pending === 0 ? 'grid' : 'none'
+    this.el.scrollLeft = scrollLeft
+    this.scroller.refresh(this.revealActive ? this.el.querySelector<HTMLElement>('.tab.active') : null)
+    this.revealActive = false
   }
 
   /** 把标题换成输入框：Enter / 失焦提交，Esc 取消 */
@@ -273,6 +290,7 @@ export class TabBar {
     if (!t || !tabEl || !titleEl) return
 
     this.editingId = id
+    this.scroller.refresh(tabEl)
     tabEl.draggable = false
     tabEl.classList.add('editing')
 

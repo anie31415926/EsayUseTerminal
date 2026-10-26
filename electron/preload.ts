@@ -46,6 +46,7 @@ const api = {
 
   // 窗口控制（自定义标题栏）
   window: {
+    newWindow: () => ipcRenderer.invoke('win:new') as Promise<void>,
     minimize: () => ipcRenderer.invoke('win:minimize'),
     toggleMaximize: () => ipcRenderer.invoke('win:toggle-maximize'),
     close: () => ipcRenderer.invoke('win:close'),

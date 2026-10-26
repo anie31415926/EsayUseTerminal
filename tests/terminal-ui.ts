@@ -6,6 +6,8 @@ import { BUILTIN_PACKS } from '../src/presets/builtin'
 import { runPackTests } from './pack-launch'
 import { runShortcutTests } from './shortcuts'
 import { listShortcuts } from '../src/shortcuts/bindings'
+import { bus } from '../src/core/EventBus'
+import { showMenu } from '../src/ui/ContextMenu'
 
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const settle = async () => { await frame(); await frame() }
@@ -117,6 +119,7 @@ async function runRegressionTests() {
   host.replaceChildren()
 
   let spawnCount = 0
+  let newWindowCount = 0
   const dataHandlers = new Map<string, (data: string) => void>()
   const writes: { id: string; text: string }[] = []
   Object.assign(window, { spark: {
@@ -125,7 +128,7 @@ async function runRegressionTests() {
     detectShells: async () => ['test.exe'], listSessions: async () => [], getAutoPack: async () => '',
     onData: (id: string, callback: (data: string) => void) => { dataHandlers.set(id, callback); return () => dataHandlers.delete(id) },
     onExit: () => () => {},
-    window: { setBg: async () => {} }
+    window: { setBg: async () => {}, newWindow: async () => { newWindowCount++ } }
   } })
   await import('../src/main')
   await settle()
@@ -135,6 +138,13 @@ async function runRegressionTests() {
     textarea.focus()
     textarea.dispatchEvent(new KeyboardEvent('keydown', { code, bubbles: true, cancelable: true, ...options }))
   }
+  await test('new-window button and centralized Ctrl+Shift+N request independent windows', () => {
+    const start = writes.length
+    document.getElementById('btn-new-window')!.click()
+    press('KeyN', { ctrlKey: true, shiftKey: true })
+    assert(newWindowCount === 2, 'new-window controls did not reach the window service exactly once')
+    assert(writes.length === start, 'new-window shortcut leaked into the terminal')
+  })
   await test('terminal pointer is an arrow and preserves link and column-selection cursors', () => {
     const element = host.querySelector<HTMLElement>('.xterm')!
     assert(getComputedStyle(element).cursor === 'default', 'terminal retained the I-beam')
@@ -171,6 +181,7 @@ async function runRegressionTests() {
   })
   await test('F2 renames once and its scoped keys are cleaned up after confirmation', async () => {
     const start = writes.length
+    localStorage.setItem('spark.tabTitles', JSON.stringify({ ...JSON.parse(localStorage.getItem('spark.tabTitles') ?? '{}'), 'another-window': 'Another window title' }))
     for (const name of ['renamed one', 'renamed two']) {
       press('F2')
       const input = document.querySelector<HTMLInputElement>('.tab-rename')!
@@ -181,6 +192,7 @@ async function runRegressionTests() {
       assert(document.querySelector('.tab.active .tab-title')!.textContent === name, 'rename did not commit')
     }
     assert(writes.length === start, 'F2 or rename Enter leaked into PTY')
+    assert(JSON.parse(localStorage.getItem('spark.tabTitles')!)['another-window'] === 'Another window title', 'renaming overwrote another window title')
   })
   await test('F1 opens the full shortcut catalog with every alternative key and scope', () => {
     const start = writes.length
@@ -364,6 +376,68 @@ async function runRegressionTests() {
     await new Promise<void>((resolve) => setTimeout(resolve, 300))
     assert(!document.querySelector('.input-editor'), 'closed session retained its editor')
     assert(writes.length === start + 1 && writes[start].text.startsWith('\x1b[200~'), 'closing a draft sent a deferred Enter')
+  })
+  await test('overflowing tabs keep the new active tab and window controls visible', async () => {
+    for (let i = 0; i < 10; i++) document.getElementById('btn-new-tab')!.click()
+    await settle()
+    const tabs = document.getElementById('tabbar')!
+    const bounds = tabs.getBoundingClientRect()
+    const active = tabs.querySelector<HTMLElement>('.tab.active')!.getBoundingClientRect()
+    assert(tabs.scrollWidth > tabs.clientWidth && tabs.scrollLeft > 0, 'tabs did not overflow and reveal the newest tab')
+    assert(active.left >= bounds.left - 1 && active.right <= bounds.right + 1, 'new active tab is clipped')
+    for (const id of ['btn-new-tab', 'btn-new-window', 'win-close']) {
+      const rect = document.getElementById(id)!.getBoundingClientRect()
+      assert(rect.left >= 0 && rect.right <= innerWidth, `${id} was pushed outside the window`)
+    }
+  })
+  await test('tab wheel and navigation buttons reach offscreen tabs without changing the active session', async () => {
+    const tabs = document.getElementById('tabbar')!
+    const activeId = tabs.querySelector<HTMLElement>('.tab.active')!.dataset.id!
+    tabs.scrollLeft = 0
+    tabs.dispatchEvent(new WheelEvent('wheel', { deltaY: 150, cancelable: true }))
+    assert(tabs.scrollLeft > 0, 'vertical wheel did not scroll tabs horizontally')
+    document.getElementById('btn-tab-next')!.click()
+    const afterNext = tabs.scrollLeft
+    document.getElementById('btn-tab-prev')!.click()
+    assert(tabs.scrollLeft < afterNext, 'tab navigation arrows did not scroll')
+    tabs.scrollLeft = 0
+    bus.emit('session:title-changed', { id: activeId, title: 'Updated while browsing tabs' })
+    await settle()
+    assert(tabs.scrollLeft === 0, 'title update unexpectedly jumped back to the active tab')
+    assert(tabs.querySelector<HTMLElement>('.tab.active')!.dataset.id === activeId, 'scrolling changed the active session')
+  })
+  await test('all-tabs menu selects hidden tabs and reveals keyboard-selected tabs', async () => {
+    const tabs = document.getElementById('tabbar')!
+    const first = tabs.querySelector<HTMLElement>('.tab')!.dataset.id!
+    document.getElementById('btn-tab-list')!.click()
+    const menu = document.querySelector<HTMLElement>('.context-menu')!
+    assert(menu.querySelectorAll('button').length === tabs.querySelectorAll('.tab').length, 'all-tabs menu omitted hidden tabs')
+    menu.querySelector<HTMLButtonElement>('button')!.click()
+    await settle()
+    assert(tabs.querySelector<HTMLElement>('.tab.active')!.dataset.id === first && tabs.scrollLeft === 0, 'menu did not activate and reveal the first tab')
+    press('Digit9', { ctrlKey: true })
+    await settle()
+    const bounds = tabs.getBoundingClientRect()
+    const active = tabs.querySelector<HTMLElement>('.tab.active')!.getBoundingClientRect()
+    assert(tabs.scrollLeft > 0 && active.right <= bounds.right + 1, 'keyboard-selected last tab stayed offscreen')
+    press('KeyA', { ctrlKey: true, shiftKey: true })
+    assert(!!document.querySelector('.context-menu'), 'centralized all-tabs shortcut did not open the menu')
+    document.querySelector<HTMLButtonElement>('.context-menu button')!.click()
+    await settle()
+  })
+  await test('long tab menus scroll within the window and keep the last item selectable', () => {
+    let selected = -1
+    const close = showMenu(Array.from({ length: 80 }, (_, i) => ({ label: `Terminal ${i + 1}`, action: () => { selected = i } })), innerWidth - 20, 40)
+    try {
+      const menu = document.querySelector<HTMLElement>('.context-menu')!
+      const rect = menu.getBoundingClientRect()
+      assert(rect.top >= 0 && rect.bottom <= innerHeight && menu.scrollHeight > menu.clientHeight, 'long menu overflows the window instead of scrolling')
+      menu.scrollTop = menu.scrollHeight
+      const last = menu.querySelector<HTMLButtonElement>('button:last-child')!
+      assert(last.getBoundingClientRect().bottom <= rect.bottom, 'last menu item cannot be scrolled into view')
+      last.click()
+      assert(Number(selected) === 79, 'last menu item could not be selected')
+    } finally { close() }
   })
   return [...results, ...await runPackTests()]
 }

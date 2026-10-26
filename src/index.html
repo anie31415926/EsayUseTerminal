@@ -14,8 +14,11 @@
     <header id="titlebar">
       <div class="drag-region">
         <span class="logo">⚡ Spark</span>
-        <nav id="tabbar" class="drag-region"></nav>
+        <div class="tab-strip">
+          <nav id="tabbar" aria-label="终端标签"></nav>
+        </div>
         <button id="btn-new-tab" class="ghost-btn" title="新建标签">+</button>
+        <button id="btn-new-window" class="ghost-btn new-window-btn" title="新建窗口">新窗口</button>
       </div>
       <div class="window-controls no-drag">
         <button id="win-min" title="最小化">─</button>

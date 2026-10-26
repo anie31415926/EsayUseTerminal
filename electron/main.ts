@@ -1,7 +1,7 @@
-import { app, shell, ipcMain, BrowserWindow, dialog } from 'electron'
+import { app, ipcMain, BrowserWindow, dialog } from 'electron'
 import { mkdirSync } from 'node:fs'
-import { createMainWindow, loadWindowState, saveWindowState } from './window'
 import { registerPtyIpc, killAllSessions } from './ptyService'
+import { WindowManager } from './WindowManager'
 
 // 关键：让 Windows 任务栏/开始菜单识别这是独立应用，而不是 electron.exe 的默认图标
 app.setAppUserModelId('com.sparkterminal.app')
@@ -13,9 +13,10 @@ if (process.env['SPARK_USER_DATA']) {
   mkdirSync(process.env['SPARK_USER_DATA'], { recursive: true })
 }
 
-const mainWin = { ref: null as BrowserWindow | null }
+const windows = new WindowManager()
 
 function registerWindowIpc() {
+  ipcMain.handle('win:new', () => { windows.create() })
   ipcMain.handle('win:minimize', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize())
   ipcMain.handle('win:toggle-maximize', (e) => {
     const w = BrowserWindow.fromWebContents(e.sender)
@@ -35,41 +36,26 @@ function registerWindowIpc() {
     return r.canceled ? null : r.filePaths[0]
   })
   // 启动参数：双击快捷方式想直接进某个内容包时用（bat 里 set SPARK_AUTO_PACK=<id>）
-  ipcMain.handle('app:get-auto-pack', () => process.env['SPARK_AUTO_PACK'] || '')
+  ipcMain.handle('app:get-auto-pack', (event) => windows.autoPackFor(event.sender.id))
 }
 
-// 单实例锁：避免多开（SPARK_ALLOW_MULTI=1 时放行，供测试/调试）
+// One coordinator shares Chromium settings safely; every launch opens an independent window.
 const allowMulti = process.env['SPARK_ALLOW_MULTI'] === '1'
-const gotLock = allowMulti || app.requestSingleInstanceLock()
+const autoPackId = process.env['SPARK_AUTO_PACK'] || ''
+const gotLock = allowMulti || app.requestSingleInstanceLock({ autoPackId })
 if (!gotLock) {
   app.quit()
 } else {
-  // 第二个实例启动时，把已有窗口拉回前台
-  app.on('second-instance', () => {
-    const w = mainWin.ref
-    if (!w) return
-    if (w.isMinimized()) w.restore()
-    w.show()
-    w.focus()
+  app.on('second-instance', (_event, _argv, _cwd, data) => {
+    const request = data as { autoPackId?: unknown } | undefined
+    const packId = typeof request?.autoPackId === 'string' ? request.autoPackId : ''
+    void app.whenReady().then(() => { windows.create(packId) })
   })
 
   app.whenReady().then(() => {
-    const state = loadWindowState()
-    const win = createMainWindow(state)
-
-    mainWin.ref = win
-    win.on('close', () => saveWindowState(win))
-    win.on('closed', () => { mainWin.ref = null })
-
-    // 外链一律交给系统浏览器，不在应用内打开；仅放行网页协议
-    const isWebUrl = (url: string) => { try { return ['http:', 'https:'].includes(new URL(url).protocol) } catch { return false } }
-    win.webContents.setWindowOpenHandler(({ url }) => {
-      if (isWebUrl(url)) shell.openExternal(url)
-      return { action: 'deny' }
-    })
-
     registerPtyIpc()
     registerWindowIpc()
+    windows.create(autoPackId)
   })
 
   app.on('before-quit', () => {

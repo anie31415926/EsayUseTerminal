@@ -51,6 +51,7 @@ function canSend(win: BrowserWindow): boolean {
  */
 class PtySession {
   readonly id: string
+  readonly ownerId: number
   private proc: pty.IPty
   private win: BrowserWindow
   readonly shellPath: string
@@ -67,6 +68,7 @@ class PtySession {
 
   constructor(win: BrowserWindow, shellPath: string, cwd: string, cols: number, rows: number) {
     this.id = randomUUID()
+    this.ownerId = win.webContents.id
     this.win = win
     this.shellPath = shellPath
     this.proc = spawnPty(shellPath, cwd, cols, rows)
@@ -174,12 +176,26 @@ export function killAllSessions() {
   sessions.clear()
 }
 
+export function killWindowSessions(ownerId: number) {
+  for (const [id, session] of sessions) {
+    if (session.ownerId !== ownerId) continue
+    session.kill()
+    sessions.delete(id)
+  }
+}
+
+function ownedSession(ownerId: number, id: string): PtySession | undefined {
+  const session = sessions.get(id)
+  return session?.ownerId === ownerId ? session : undefined
+}
+
 export function registerPtyIpc() {
   // 新建会话：返回 sessionId（shell 必须命中白名单）
   ipcMain.handle('pty:spawn', async (e, opts: { cols?: number; rows?: number; cwd?: string; shell?: string }) => {
     const win = BrowserWindow.fromWebContents(e.sender)
     if (!win) throw new Error('窗口已销毁，无法创建终端会话')
     const { path: shellPath, candidates } = await resolveShell(opts?.shell)
+    if (!canSend(win)) throw new Error('窗口已关闭，已取消创建终端')
     const requestedCwd = opts?.cwd ?? ''
     // 工作区路径可能已被删除、写成文件、或带引号，一律回退主目录
     const cwd = isDirectory(requestedCwd) ? requestedCwd : defaultCwd()
@@ -198,16 +214,16 @@ export function registerPtyIpc() {
     return { id: s.id, shellPath, candidates }
   })
 
-  ipcMain.on('pty:write', (e, id: string, data: string) => sessions.get(id)?.write(data))
-  ipcMain.on('pty:resize', (e, id: string, cols: number, rows: number) => sessions.get(id)?.resize(cols, rows))
+  ipcMain.on('pty:write', (e, id: string, data: string) => ownedSession(e.sender.id, id)?.write(data))
+  ipcMain.on('pty:resize', (e, id: string, cols: number, rows: number) => ownedSession(e.sender.id, id)?.resize(cols, rows))
   ipcMain.on('pty:kill', (e, id: string) => {
-    sessions.get(id)?.kill()
-    sessions.delete(id)
+    const session = ownedSession(e.sender.id, id)
+    if (session) { session.kill(); sessions.delete(id) }
   })
 
   // 渲染进程热重载后重建会话列表用
-  ipcMain.handle('pty:list', () =>
-    [...sessions.values()].map((s) => ({ id: s.id, shellPath: s.shellPath }))
+  ipcMain.handle('pty:list', (e) =>
+    [...sessions.values()].filter((s) => s.ownerId === e.sender.id).map((s) => ({ id: s.id, shellPath: s.shellPath }))
   )
   ipcMain.handle('shell:detect', () => getCachedCandidates())
 }
