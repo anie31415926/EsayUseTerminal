@@ -45,6 +45,7 @@ export class FindBox {
   /** 供 main 在会话切换时更新目标 */
   setSession(session: TerminalSession | null) {
     this.session = session
+    if (!session) this.close(false)
   }
 
   /** 当前绑定的 pty 会话 id（main 用它判断会话是否已经关闭） */
@@ -67,11 +68,11 @@ export class FindBox {
     if (this.input.value) this.find(this.input.value, 'next')
   }
 
-  private close() {
+  private close(restoreFocus = true) {
     this.visible = false
     this.el.style.display = 'none'
     this.session?.search.clearDecorations()
-    this.session?.term.focus()
+    if (restoreFocus) this.session?.focus()
   }
 
   private find(term_: string, dir: 'next' | 'prev') {

@@ -19,6 +19,7 @@ export class SettingsPanel {
   private fontSlider: HTMLInputElement
   private fontValue: HTMLSpanElement
   private themeSelect: HTMLSelectElement
+  private anchor: HTMLElement | null = null
 
   constructor(access: SettingsAccess) {
     this.access = access
@@ -88,6 +89,7 @@ export class SettingsPanel {
       if (this.el.contains(target) || btn?.contains(target)) return
       this.close()
     })
+    window.addEventListener('resize', () => this.position())
   }
 
   private labelWith(text: string, extra?: HTMLElement): HTMLDivElement {
@@ -113,11 +115,17 @@ export class SettingsPanel {
     else {
       this.sync()
       this.open = true
-      const r = anchor.getBoundingClientRect()
+      this.anchor = anchor
       this.el.style.display = 'block'
-      this.el.style.left = `${Math.min(Math.max(8, r.left), window.innerWidth - this.el.offsetWidth - 8)}px`
-      this.el.style.bottom = `${window.innerHeight - r.top + 6}px`
+      this.position()
     }
+  }
+
+  private position() {
+    if (!this.open || !this.anchor) return
+    const r = this.anchor.getBoundingClientRect()
+    this.el.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - this.el.offsetWidth - 8))}px`
+    this.el.style.bottom = `${Math.max(8, Math.min(window.innerHeight - r.top + 6, window.innerHeight - this.el.offsetHeight - 8))}px`
   }
 
   private close() {

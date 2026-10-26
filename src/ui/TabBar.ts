@@ -117,6 +117,11 @@ export class TabBar {
       this.requestRender()
     })
     bus.on('session:closed', ({ id }) => {
+      if (this.editingId === id) {
+        this.renameShortcuts.forEach((dispose) => dispose())
+        this.renameShortcuts = []
+        this.editingId = ''
+      }
       this.tabs = this.tabs.filter((t) => t.id !== id)
       persistTitle(id, undefined)
       this.requestRender()

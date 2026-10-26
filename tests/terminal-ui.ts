@@ -529,6 +529,55 @@ async function runRegressionTests() {
       assert(!document.getElementById('workspace-error')!.hidden && !input.disabled, 'failed spawn did not report or recover')
     } finally { failSpawn = false }
   })
+  await test('settings follow their anchor when the window layout changes', () => {
+    const button = document.getElementById('btn-settings')!
+    button.click()
+    try {
+      button.style.position = 'fixed'
+      button.style.left = '20px'
+      window.dispatchEvent(new Event('resize'))
+      const panel = document.querySelector<HTMLElement>('.settings-panel')!.getBoundingClientRect()
+      assert(Math.abs(panel.left - 20) < 1 && panel.right <= innerWidth, 'settings retained their old position after resize')
+    } finally {
+      button.style.position = ''
+      button.style.left = ''
+      button.click()
+    }
+  })
+  await test('closing search restores the active local draft instead of sending subsequent keys into the terminal', async () => {
+    const activeText = host.querySelector<HTMLTextAreaElement>('.session-host:not([style*="display: none"]) textarea')!
+    activeText.focus()
+    activeText.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }))
+    await settle()
+    const editor = draft()
+    editor.value = '保留的草稿'
+    editor.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF', ctrlKey: true, bubbles: true, cancelable: true }))
+    const search = document.querySelector<HTMLInputElement>('.findbar-input')!
+    search.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', bubbles: true, cancelable: true }))
+    assert(document.activeElement === editor && editor.value === '保留的草稿', 'search close moved typing out of the local draft')
+  })
+  await test('closing the final terminal during rename clears tabs and permits opening a replacement', async () => {
+    while (document.querySelectorAll('.tab:not(.ghost)').length > 1) {
+      document.querySelector<HTMLButtonElement>('.tab:not(.active) .tab-close')!.click()
+      await settle()
+    }
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'F2', bubbles: true, cancelable: true }))
+    const rename = document.querySelector<HTMLInputElement>('.tab-rename')!
+    assert(!!rename, 'final terminal did not enter rename')
+    rename.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true }))
+    await settle()
+    assert(!document.querySelector('.tab') && !document.querySelector('.tab-rename'), 'closed terminal remains frozen in the tab strip')
+    document.getElementById('btn-new-tab')!.click()
+    await settle()
+    assert(document.querySelectorAll('.tab.active').length === 1, 'closing the renamed last tab prevented creating a replacement')
+  })
+  await test('closing the final session hides search and clears stale terminal status', async () => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyF', ctrlKey: true, bubbles: true, cancelable: true }))
+    document.querySelector<HTMLButtonElement>('.tab.active .tab-close')!.click()
+    await settle()
+    assert(document.querySelector<HTMLElement>('.findbar')!.style.display === 'none', 'search remains open without a terminal')
+    assert(document.getElementById('status-dim')!.textContent === '0 × 0', 'status still describes a closed terminal')
+  })
   return [...results, ...await runPackTests()]
 }
 

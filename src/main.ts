@@ -73,6 +73,10 @@ async function main() {
         statusBar.setZoom(s.getZoom())
         statusBar.setDim(s.term.cols, s.term.rows)
         statusBar.setShell(shellName(s.shellPath || 'shell'))
+      } else {
+        statusBar.setShell('\u2014')
+        statusBar.setDim(0, 0)
+        statusBar.setZoom(1)
       }
     })
 

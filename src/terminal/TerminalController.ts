@@ -101,11 +101,13 @@ export class TerminalController {
       console.error('[close] dispose 失败，强制摘除标签：', err)
     }
     this.sessions.delete(id)
+    if (wasActive) this.activeId = ''
     bus.emit('session:closed', { id })
     if (wasActive) {
       const remaining = [...this.sessions.keys()]
       const next = remaining[Math.min(idx, remaining.length - 1)]
       if (next) this.activate(next)
+      else bus.emit('session:active', { id: '' })
     }
   }
 

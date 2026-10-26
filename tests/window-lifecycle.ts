@@ -99,10 +99,25 @@ app.whenReady().then(async () => {
     assert.equal(argumentsLine.split('--no-alt-screen').length - 1, 1)
     assert.ok(argumentsLine.includes('C:\\folder with spaces'))
     console.log('PASS content pack flags are not duplicated and quoted Codex arguments remain intact')
+    for (const variant of shells.filter((candidate) => candidate !== shell)) {
+      const alternate = await evaluate<{ id: string }>(second, `window.spark.spawn(${JSON.stringify({ shell: variant, cwd })})`)
+      await evaluate(second, `window.variantOutput = ''; window.offVariant = window.spark.onData(${JSON.stringify(alternate.id)}, data => { window.variantOutput += data }); undefined`)
+      await waitFor(() => evaluate(second, "window.variantOutput.includes('>')"))
+      const command = /cmd(?:\.exe)?$/i.test(variant)
+        ? 'set SPARK_REGRESSION_MARKER=READY\recho VARIANT_%SPARK_REGRESSION_MARKER%\recho VARIANT_CWD=%CD%\r'
+        : "Write-Output ('VARIANT_'+'READY'); Write-Output ('VARIANT_'+'CWD=' + (Get-Location).Path)\r"
+      await evaluate(second, `window.spark.write(${JSON.stringify(alternate.id)}, ${JSON.stringify(command)})`)
+      await waitFor(() => evaluate(second, "window.variantOutput.includes('VARIANT_READY')"))
+      await waitFor(() => evaluate(second, `window.variantOutput.includes(${JSON.stringify('VARIANT_CWD=' + cwd)})`))
+      await evaluate(second, `window.offVariant(); window.spark.kill(${JSON.stringify(alternate.id)})`)
+      console.log(`PASS alternate shell starts in the chosen workspace and accepts commands: ${variant}`)
+    }
     second.destroy()
     clearTimeout(timeout)
     killAllSessions()
-    app.exit(0)
+    // node-pty drains ConPTY output on a one-second timer after kill; let its callbacks finish.
+    await new Promise((resolve) => setTimeout(resolve, 1250))
+    app.quit()
   } catch (error) {
     console.error(error)
     clearTimeout(timeout)
