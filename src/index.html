@@ -12,18 +12,20 @@
 <body>
   <div id="app">
     <header id="titlebar">
-      <div class="drag-region">
+      <div class="window-caption">
         <span class="logo">⚡ Spark</span>
+        <div class="window-controls no-drag">
+          <button id="win-min" title="最小化">─</button>
+          <button id="win-max" title="最大化">□</button>
+          <button id="win-close" class="close" title="关闭">✕</button>
+        </div>
+      </div>
+      <div class="tab-toolbar">
         <div class="tab-strip">
           <nav id="tabbar" aria-label="终端标签"></nav>
         </div>
         <button id="btn-new-tab" class="ghost-btn" title="新建标签">+</button>
         <button id="btn-new-window" class="ghost-btn new-window-btn" title="新建窗口">新窗口</button>
-      </div>
-      <div class="window-controls no-drag">
-        <button id="win-min" title="最小化">─</button>
-        <button id="win-max" title="最大化">□</button>
-        <button id="win-close" class="close" title="关闭">✕</button>
       </div>
     </header>
 

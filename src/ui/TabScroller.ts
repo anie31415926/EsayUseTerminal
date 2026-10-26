@@ -29,7 +29,7 @@ export class TabScroller {
     this.list.addEventListener('click', () => this.openList())
     viewport.addEventListener('wheel', this.onWheel, { passive: false })
     viewport.addEventListener('scroll', this.update)
-    this.observer = new ResizeObserver(this.update)
+    this.observer = new ResizeObserver(() => this.refresh(this.viewport.querySelector<HTMLElement>('.tab.active')))
     this.observer.observe(viewport)
     this.update()
   }

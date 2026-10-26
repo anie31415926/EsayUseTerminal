@@ -437,6 +437,18 @@ async function runRegressionTests() {
     document.querySelector<HTMLButtonElement>('.context-menu button')!.click()
     await settle()
   })
+  await test('shrinking the tab strip keeps the active terminal visible', async () => {
+    const strip = document.querySelector<HTMLElement>('.tab-strip')!
+    document.querySelector<HTMLElement>('#tabbar .tab:last-child')!.dispatchEvent(new MouseEvent('mousedown', { button: 0, bubbles: true }))
+    await settle()
+    try {
+      strip.style.maxWidth = '340px'
+      await settle()
+      const viewport = document.getElementById('tabbar')!.getBoundingClientRect()
+      const active = document.querySelector<HTMLElement>('#tabbar .tab.active')!.getBoundingClientRect()
+      assert(active.left >= viewport.left - 1 && active.right <= viewport.right + 1, 'resizing left the active tab outside the visible strip')
+    } finally { strip.style.maxWidth = ''; await settle() }
+  })
   await test('long tab menus scroll within the window and keep the last item selectable', () => {
     let selected = -1
     const close = showMenu(Array.from({ length: 80 }, (_, i) => ({ label: `Terminal ${i + 1}`, action: () => { selected = i } })), innerWidth - 20, 40)
