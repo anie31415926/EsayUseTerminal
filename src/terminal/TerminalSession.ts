@@ -93,7 +93,8 @@ export class TerminalSession {
     this.layout = new TerminalLayout(this.host, this.term, this.fit)
     this.input = new SessionInput(
       this.term, (data) => this.writeInput(data), () => !!this.ptyId && !this.exited,
-      () => this.layout.schedule()
+      () => this.layout.schedule(),
+      () => this.layout.followLatestOutput()
     )
 
     // 用户在终端里的输入 -> 写到 pty

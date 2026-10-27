@@ -45,6 +45,16 @@ export class TerminalLayout {
     })
   }
 
+  /** Restore the latest output position after an external input submission. */
+  followLatestOutput() {
+    if (this.disposed || this.term.buffer.active.type !== 'normal') return
+    this.followOutput = true
+    this.anchor?.dispose()
+    this.anchor = null
+    this.term.scrollToBottom()
+    this.schedule()
+  }
+
   setFontSize(size: number) {
     // Capture the viewport before xterm changes font metrics and reflows its buffer.
     this.schedule()

@@ -168,12 +168,32 @@ async function verifyInputSwitch(evaluate) {
   }
   console.log('PASS packaged EXE input mode switches preserve both latest output and historical scroll position')
 }
+async function verifyDraftOutput(evaluate) {
+  const session = await until(async () => (await evaluate('window.spark?.listSessions()'))?.[0])
+  await evaluate(`window.draftOutput = ''; window.offDraftOutput = window.spark.onData(${JSON.stringify(session.id)}, text => { window.draftOutput += text }); true`)
+  await until(() => evaluate("window.draftOutput.includes('>')"))
+  const seed = "1..360 | ForEach-Object { Write-Output ('seed ' + $_) }; Write-Output ('DRAFT_'+'READY')\r"
+  await evaluate(`window.spark.write(${JSON.stringify(session.id)}, ${JSON.stringify(seed)})`)
+  await until(() => evaluate("window.draftOutput.includes('DRAFT_READY')"))
+  await delay(150)
+  await evaluate(`document.querySelector('.session-host:not([style*="display: none"]) textarea').dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })); true`)
+  await until(() => evaluate("!!document.querySelector('.input-editor:not([hidden]) textarea')"))
+  const command = "1..100 | ForEach-Object { Write-Output ('sent ' + $_) }; Write-Output ('DRAFT_'+'SENT')"
+  await evaluate(`(() => { const input = document.querySelector('.input-editor:not([hidden]) textarea'); input.value = ${JSON.stringify(command)}; input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true, cancelable: true })); return true })()`)
+  await until(() => evaluate("window.draftOutput.includes('DRAFT_SENT')"))
+  await delay(250)
+  const viewport = await evaluate(`(() => { const el = document.querySelector('.session-host:not([style*="display: none"]) .xterm-viewport'); return { top: el.scrollTop, max: el.scrollHeight - el.clientHeight } })()`)
+  assert.ok(viewport.top >= viewport.max - 2, `draft submit left terminal above latest output: ${JSON.stringify(viewport)}`)
+  await evaluate('window.offDraftOutput(); true')
+  console.log('PASS packaged EXE keeps latest output visible after sending from the application input')
+}
 try {
   const endpoint = await until(() => output.match(/DevTools listening on (ws:\/\/[^\s]+)/)?.[1])
   const list = async () => (await globalThis.fetch(new URL('/json/list', endpoint.replace('ws:', 'http:')))).json()
   const target = await until(async () => (await list()).find((target) => target.type === 'page'))
   const first = await connect(target)
   if (process.argv.includes('--tabs')) await verifyTabHover(first)
+  if (process.argv.includes('--draft')) await verifyDraftOutput(first)
   if (process.argv.includes('--input') || process.argv.includes('--codex')) await verifyInputSwitch(first)
   const one = await occupy(first, 'first')
   await first('window.spark.window.newWindow()')

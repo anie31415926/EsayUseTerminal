@@ -148,6 +148,20 @@ export async function runLayoutTests(test: (name: string, fn: () => void | Promi
         await settle()
       }
     })
+    await test('sending from the application input restores the latest output position', async () => {
+      session.term.scrollToBottom()
+      session.enableInputEditor()
+      await settle()
+      const draft = document.querySelector<HTMLTextAreaElement>('.input-editor:not([hidden]) textarea')!
+      draft.value = 'submitted prompt'
+      draft.dispatchEvent(new Event('input', { bubbles: true }))
+      draft.dispatchEvent(new KeyboardEvent('keydown', { code: 'Enter', bubbles: true, cancelable: true }))
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await write(session, Array.from({ length: 80 }, (_, i) => `submitted output ${i}\r\n`).join(''))
+      await settle()
+      const buffer = session.term.buffer.active
+      assert(buffer.viewportY === buffer.baseY, `application submit left latest output at ${buffer.viewportY}/${buffer.baseY}`)
+    })
     await test('resizing the viewport preserves a historical line while the terminal is not following output', async () => {
       session.term.scrollToLine(100)
       await settle()

@@ -16,7 +16,8 @@ export class SessionInput {
     private term: Terminal,
     private write: (data: string) => void,
     private isAlive: () => boolean,
-    private beforeLayoutChange: () => void
+    private beforeLayoutChange: () => void,
+    private afterSubmit: () => void
   ) {
     this.target = new TerminalInputTarget(term)
   }
@@ -100,6 +101,7 @@ export class SessionInput {
       if (this.disposed || !this.isAlive() || !this.target.supportsImages()) return false
     }
     this.write('\r')
+    this.afterSubmit()
     return true
   }
 
