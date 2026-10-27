@@ -56,15 +56,47 @@ async function connect(target) {
     pending.clear()
   })
   clients.push(socket)
-  return async (expression) => {
-    const result = await new Promise((resolve, reject) => {
-      const id = ++nextId
-      pending.set(id, { resolve, reject })
-      socket.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, awaitPromise: true, returnByValue: true } }))
-    })
+  const command = (method, params) => new Promise((resolve, reject) => {
+    const id = ++nextId
+    pending.set(id, { resolve, reject })
+    socket.send(JSON.stringify({ id, method, params }))
+  })
+  const evaluate = async (expression) => {
+    const result = await command('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true })
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails))
     return result.result.value
   }
+  evaluate.command = command
+  return evaluate
+}
+async function verifyTabHover(evaluate, closeButton = false) {
+  await until(async () => (await evaluate('window.spark?.listSessions()'))?.length)
+  await evaluate('window.originalTab = document.querySelector(".tab[data-id]"); document.getElementById("btn-new-tab").click(); true')
+  const id = await until(() => evaluate('document.querySelector(".tab.active")?.dataset.id !== window.originalTab.dataset.id && document.querySelector(".tab.active")?.dataset.id'))
+  await evaluate(`window.tabTitleOutput = ''; window.offTabTitle = window.spark.onData(${JSON.stringify(id)}, text => { window.tabTitleOutput += text }); true`)
+  await until(() => evaluate("window.tabTitleOutput.includes('>')"))
+  // Creation may rebuild the strip once; retain the old session's current node before streaming.
+  const point = await evaluate(`(() => {
+    window.originalTab = document.querySelector('.tab[data-id="' + window.originalTab.dataset.id + '"]');
+    window.hoverTarget = ${closeButton ? "window.originalTab.querySelector('.tab-close')" : 'window.originalTab'};
+    const rect = window.hoverTarget.getBoundingClientRect();
+    return { x: rect.left + ${closeButton ? 'rect.width / 2' : '30'}, y: rect.top + rect.height / 2 };
+  })()`)
+  await evaluate.command('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+  await delay(200)
+  assert.ok(await evaluate('window.hoverTarget.matches(":hover")'), 'mouse did not hover the intended target')
+  const style = await evaluate('JSON.stringify([getComputedStyle(window.hoverTarget).opacity, getComputedStyle(window.hoverTarget).backgroundColor, getComputedStyle(window.hoverTarget).color])')
+  const command = "1..12 | ForEach-Object { [Console]::Write(([char]27).ToString() + ']0;Codex working ' + $_ + [char]7); Start-Sleep -Milliseconds 80 }; Write-Output ('TITLE_'+'READY')\r"
+  await evaluate(`window.spark.write(${JSON.stringify(id)}, ${JSON.stringify(command)})`)
+  for (let i = 0; i < 8; i++) {
+    await delay(100)
+    assert.ok(await evaluate('window.hoverTarget.isConnected && window.hoverTarget.matches(":hover")'), 'streaming titles replaced the hovered target')
+    assert.equal(await evaluate('JSON.stringify([getComputedStyle(window.hoverTarget).opacity, getComputedStyle(window.hoverTarget).backgroundColor, getComputedStyle(window.hoverTarget).color])'), style, 'hovered target kept changing appearance')
+  }
+  await until(() => evaluate("window.tabTitleOutput.includes('TITLE_READY')"))
+  assert.ok(await evaluate('document.querySelector(".tab.active .tab-title").textContent.includes("Codex working")'), 'native shell titles never reached the tab bar')
+  await evaluate('window.offTabTitle(); true')
+  console.log(`PASS packaged EXE keeps the original ${closeButton ? 'close button' : 'tab'} hovered during continuous native shell title updates`)
 }
 async function occupy(evaluate, name) {
   const session = await until(async () => (await evaluate('window.spark?.listSessions()'))?.[0])
@@ -141,11 +173,13 @@ try {
   const list = async () => (await globalThis.fetch(new URL('/json/list', endpoint.replace('ws:', 'http:')))).json()
   const target = await until(async () => (await list()).find((target) => target.type === 'page'))
   const first = await connect(target)
+  if (process.argv.includes('--tabs')) await verifyTabHover(first)
   if (process.argv.includes('--input') || process.argv.includes('--codex')) await verifyInputSwitch(first)
   const one = await occupy(first, 'first')
   await first('window.spark.window.newWindow()')
   const next = await until(async () => (await list()).find((item) => item.type === 'page' && item.id !== target.id))
   const second = await connect(next)
+  if (process.argv.includes('--tabs')) await verifyTabHover(second, true)
   const two = await occupy(second, 'second')
   await first('document.getElementById("win-close").click(); true').catch(() => {})
   await assertReleased(one)

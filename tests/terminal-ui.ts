@@ -440,6 +440,50 @@ async function runRegressionTests() {
     assert(tabs.scrollLeft === 0, 'title update unexpectedly jumped back to the active tab')
     assert(tabs.querySelector<HTMLElement>('.tab.active')!.dataset.id === activeId, 'scrolling changed the active session')
   })
+  await test('streaming content-pack titles retain existing tabs and close buttons without resetting hover targets', async () => {
+    const tabs = document.getElementById('tabbar')!
+    const original = [...tabs.querySelectorAll<HTMLElement>('.tab[data-id]')]
+    const active = tabs.querySelector<HTMLElement>('.tab.active')!
+    const old = original.find((tab) => tab !== active)!
+    const close = old.querySelector<HTMLButtonElement>('.tab-close')!
+    close.focus({ preventScroll: true })
+    const scrollLeft = tabs.scrollLeft
+    for (let i = 0; i < 4; i++) {
+      bus.emit('session:title-changed', { id: active.dataset.id!, title: `Codex working ${i}` })
+      await settle()
+      assert(original.every((tab) => tabs.querySelector(`[data-id="${tab.dataset.id}"]`) === tab), 'title output replaced existing hover targets')
+      assert(document.activeElement === close, 'title output discarded close-button focus')
+      assert(tabs.scrollLeft === scrollLeft, 'streaming title output moved the tab strip')
+    }
+    assert(active.querySelector('.tab-title')!.textContent === 'Codex working 3', 'active title stopped updating')
+    let mutations = 0
+    const observer = new MutationObserver((entries) => { mutations += entries.length })
+    observer.observe(tabs, { subtree: true, childList: true, attributes: true, characterData: true })
+    try {
+      bus.emit('session:title-changed', { id: active.dataset.id!, title: 'Codex working 3' })
+      await settle()
+      assert(mutations === 0, 'identical shell title unnecessarily mutated the tab DOM')
+    } finally { observer.disconnect() }
+  })
+  await test('background title and exit updates preserve peer tabs and rename drafts', async () => {
+    const tabs = document.getElementById('tabbar')!
+    const active = tabs.querySelector<HTMLElement>('.tab.active')!
+    const background = tabs.querySelector<HTMLElement>('.tab:not(.active)[data-id]')!
+    const activeId = active.dataset.id!
+    bus.emit('tab:rename-request', { id: activeId })
+    const input = active.querySelector<HTMLInputElement>('.tab-rename')!
+    input.value = 'unconfirmed rename'
+    bus.emit('session:title-changed', { id: activeId, title: 'title during rename' })
+    bus.emit('session:title-changed', { id: background.dataset.id!, title: 'background title' })
+    bus.emit('session:exited', { id: background.dataset.id! })
+    await settle()
+    assert(active.querySelector('.tab-rename') === input && input.value === 'unconfirmed rename', 'status update replaced a rename draft')
+    assert(background.classList.contains('dead') && background.textContent!.includes('[已退出]'), 'background exit state was not updated')
+    assert(tabs.querySelector(`[data-id="${background.dataset.id}"]`) === background, 'background update replaced its tab')
+    input.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape', bubbles: true, cancelable: true }))
+    await settle()
+    assert(tabs.querySelector('.tab.active .tab-title')!.textContent === 'title during rename', 'cancel rename did not restore the latest automatic title')
+  })
   await test('all-tabs menu selects hidden tabs and reveals keyboard-selected tabs', async () => {
     const tabs = document.getElementById('tabbar')!
     const first = tabs.querySelector<HTMLElement>('.tab')!.dataset.id!

@@ -128,16 +128,16 @@ export class TabBar {
     })
     bus.on('session:exited', ({ id }) => {
       const t = this.tabs.find((t) => t.id === id)
-      if (!t) return
+      if (!t || t.dead) return
       t.dead = true
-      this.requestRender()
+      this.updateTab(t)
     })
     bus.on('session:title-changed', ({ id, title }) => {
       const t = this.tabs.find((t) => t.id === id)
-      if (!t) return
-      t.autoTitle = title || t.autoTitle
+      if (!t || !title || t.autoTitle === title) return
+      t.autoTitle = title
       // 已重命名则保持锁定（PowerShell 每条命令都会改标题，别把用户起的名字刷掉）
-      if (!t.custom) this.requestRender()
+      if (!t.custom) this.updateTab(t)
     })
     bus.on('tab:rename-request', ({ id }) => {
       const target = id || this.activeId
@@ -154,6 +154,18 @@ export class TabBar {
   private displayTitle(t: Tab | undefined): string {
     if (!t) return ''
     return (t.dead ? '[已退出] ' : '') + (t.custom || t.autoTitle || '终端')
+  }
+
+  private updateTab(t: Tab) {
+    // Shell output must not replace other tabs and restart their hover transitions.
+    if (this.editingId === t.id) return
+    const tab = this.el.querySelector<HTMLElement>(`.tab[data-id="${CSS.escape(t.id)}"]`)
+    const title = tab?.querySelector<HTMLElement>('.tab-title')
+    if (!tab || !title) return // The pending structural render will use the latest state.
+    const display = this.displayTitle(t)
+    if (title.textContent !== display) title.textContent = display
+    tab.classList.toggle('dead', !!t.dead)
+    tab.title = `${display}\n双击标题或 ${shortcutLabel('tab.rename')} 重命名`
   }
 
   // 事件帧合批：shell 改标题很频繁（PowerShell 每条命令都会改），一帧只渲一次
